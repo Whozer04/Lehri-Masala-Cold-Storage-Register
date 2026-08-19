@@ -199,21 +199,21 @@ st.markdown(f"""
         border: 1px solid rgba(120, 120, 128, 0.14);
         border-left: 4px solid {active_palette['accent']};
         border-radius: 14px;
-        padding: 12px 16px;
-        margin-bottom: 8px;
+        padding: 10px 14px;
+        margin-bottom: 0px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
     }}
     .item-subcard-title {{
         font-weight: 600;
-        font-size: 15px;
+        font-size: 14.5px;
         color: var(--text-color);
         letter-spacing: -0.015em;
     }}
     .item-subcard-body {{
-        font-size: 13px;
+        font-size: 12.5px;
         color: var(--text-color);
         opacity: 0.82;
-        margin-top: 3px;
+        margin-top: 2px;
     }}
 
     .lot-subcard {{
@@ -221,24 +221,55 @@ st.markdown(f"""
         border: 1px solid rgba(120, 120, 128, 0.14);
         border-left: 4px solid {active_palette['badge_border']};
         border-radius: 14px;
-        padding: 12px 16px;
-        margin-bottom: 8px;
+        padding: 10px 14px;
+        margin-bottom: 0px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
     }}
     .lot-subcard-title {{
         font-weight: 600;
-        font-size: 15px;
+        font-size: 14.5px;
         color: var(--text-color);
         letter-spacing: -0.015em;
     }}
     .lot-subcard-body {{
-        font-size: 13px;
+        font-size: 12.5px;
         color: var(--text-color);
         opacity: 0.82;
-        margin-top: 3px;
+        margin-top: 2px;
     }}
 
-    /* Finder Location Summary Row */
+    /* Mobile Row Lock (Never Stacks Shortcut Button Below Card) */
+    div[data-testid="stHorizontalBlock"]:has(.lot-subcard),
+    div[data-testid="stHorizontalBlock"]:has(.item-subcard) {{
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 8px !important;
+        margin-bottom: 8px !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.lot-subcard) > div[data-testid="column"]:first-child,
+    div[data-testid="stHorizontalBlock"]:has(.item-subcard) > div[data-testid="column"]:first-child {{
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.lot-subcard) > div[data-testid="column"]:last-child,
+    div[data-testid="stHorizontalBlock"]:has(.item-subcard) > div[data-testid="column"]:last-child {{
+        min-width: fit-content !important;
+        flex: 0 0 auto !important;
+    }}
+
+    /* Compact Mobile Shortcut Buttons */
+    div[data-testid="stHorizontalBlock"]:has(.lot-subcard) .stButton > button,
+    div[data-testid="stHorizontalBlock"]:has(.item-subcard) .stButton > button {{
+        padding: 6px 14px !important;
+        min-height: 36px !important;
+        height: 36px !important;
+        font-size: 12.5px !important;
+        border-radius: 10px !important;
+        white-space: nowrap !important;
+    }}
+
     .finder-loc-card {{
         background: var(--background-color);
         border: 1px solid rgba(120, 120, 128, 0.16);
@@ -463,7 +494,7 @@ def update_inward_entry(entry_id, updated_record):
         for k, v in updated_record.items():
             df.loc[idx[0], k] = v
         conn.update(worksheet="inward", data=df)
-        get_inward_df.clear()
+        get_outward_df.clear()
         df_o = get_outward_df()
         df_s = compute_stock_summary_df(df_o, df)
         sync_sheet_stock_summary(df_s)
@@ -576,7 +607,7 @@ with col_h1:
         st.image("logo.png", width=95)
 with col_h2:
     st.markdown("<div class='main-header'>Lehri Masala Cold Storage Register</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Cloud-Enabled Batch Tracking & Inventory Ledger</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-header'>Apple-Engineered Inventory Tracking & Precision Cold Ledger</div>", unsafe_allow_html=True)
 
 # Fetch Data
 df_raw_out = get_outward_df()
@@ -700,7 +731,7 @@ if selected_tab == "📊 Operational Dashboard":
                 bal_kg = float(lot_row["Bal. Total Qty (KG)"])
                 days_held = int(lot_row["Days in Storage"])
 
-                c_lot_info, c_lot_btn = st.columns([3.2, 0.8])
+                c_lot_info, c_lot_btn = st.columns([5, 1], vertical_alignment="center")
                 with c_lot_info:
                     st.markdown(f"""
                     <div class="lot-subcard">
@@ -713,7 +744,6 @@ if selected_tab == "📊 Operational Dashboard":
                     </div>
                     """, unsafe_allow_html=True)
                 with c_lot_btn:
-                    st.write("")
                     st.button(
                         "📥 Inward",
                         key=f"btn_in_lot_{lot_no}",
@@ -743,7 +773,7 @@ if selected_tab == "📊 Operational Dashboard":
                 for _, it_row in item_grp.iterrows():
                     item_name = it_row["Item Name"]
 
-                    c_info, c_btn1 = st.columns([3.0, 1.0])
+                    c_info, c_btn1 = st.columns([5, 1], vertical_alignment="center")
                     with c_info:
                         st.markdown(f"""
                         <div class="item-subcard">
@@ -757,7 +787,6 @@ if selected_tab == "📊 Operational Dashboard":
                         """, unsafe_allow_html=True)
 
                     with c_btn1:
-                        st.write("")
                         st.button(
                             "➕ Outward",
                             key=f"btn_out_{fac_name}_{item_name}",
@@ -770,7 +799,7 @@ if selected_tab == "📊 Operational Dashboard":
 
         st.divider()
 
-        # 4. QUICK ITEM STOCK FINDER (WITH RESPECTIVE LOCATION BREAKDOWN)
+        # 4. QUICK ITEM STOCK FINDER (CLEAN TOTALS PER LOCATION)
         st.markdown("##### ⚡ Quick Item Stock Finder")
         with st.container(border=True):
             avail_items = sorted(list(active_df["Item Name"].unique()))
