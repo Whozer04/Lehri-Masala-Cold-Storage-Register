@@ -194,45 +194,45 @@ st.markdown(f"""
         letter-spacing: -0.025em;
     }}
 
-    /* Card-like Interactive Buttons */
+    /* Global Buttons */
     .stButton > button {{
-        border-radius: 14px !important;
-        font-weight: 500 !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
         letter-spacing: -0.01em !important;
         transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-        text-align: left !important;
-        justify-content: flex-start !important;
-        white-space: pre-wrap !important;
-        line-height: 1.4 !important;
-        padding: 12px 16px !important;
-        border: 1px solid rgba(120, 120, 128, 0.16) !important;
-        background: var(--secondary-background-color) !important;
-    }}
-    .stButton > button div, .stButton > button p {{
-        text-align: left !important;
-        width: 100% !important;
     }}
     .stButton > button:hover {{
-        transform: scale(1.008) !important;
-        border-color: {active_palette['accent']} !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04) !important;
+        transform: scale(1.012) !important;
     }}
     .stButton > button:active {{
-        transform: scale(0.99) !important;
-    }}
-    
-    /* Primary buttons stay centered */
-    .stButton > button[kind="primary"],
-    .stButton > button[data-testid="stBaseButton-primary"] {{
-        text-align: center !important;
-        justify-content: center !important;
-        font-weight: 600 !important;
-    }}
-    .stButton > button[kind="primary"] div,
-    .stButton > button[kind="primary"] p {{
-        text-align: center !important;
+        transform: scale(0.98) !important;
     }}
 
+    /* STRICT LEFT-ALIGNMENT FOR EXPANDER LIST CARDS */
+    div[data-testid="stExpander"] .stButton > button {{
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        text-align: left !important;
+        padding: 12px 18px !important;
+        border-radius: 14px !important;
+        border: 1px solid rgba(120, 120, 128, 0.16) !important;
+        background: var(--secondary-background-color) !important;
+        margin-bottom: 6px !important;
+        width: 100% !important;
+    }}
+    div[data-testid="stExpander"] .stButton > button div,
+    div[data-testid="stExpander"] .stButton > button p,
+    div[data-testid="stExpander"] .stButton > button span {{
+        text-align: left !important;
+        justify-content: flex-start !important;
+        display: block !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }}
+
+    /* Finder Location Summary Row */
     .finder-loc-card {{
         background: var(--background-color);
         border: 1px solid rgba(120, 120, 128, 0.16);
@@ -444,7 +444,7 @@ def update_inward_entry(entry_id, updated_record):
         for k, v in updated_record.items():
             df.loc[idx[0], k] = v
         conn.update(worksheet="inward", data=df)
-        get_inward_df.clear()
+        get_outward_df.clear()
         df_o = get_outward_df()
         df_s = compute_stock_summary_df(df_o, df)
         sync_sheet_stock_summary(df_s)
@@ -681,7 +681,7 @@ if selected_tab == "📊 Operational Dashboard":
                 bal_kg = float(lot_row["Bal. Total Qty (KG)"])
                 days_held = int(lot_row["Days in Storage"])
 
-                lot_btn_label = f"📦 Lot {lot_no} — {item_name}   •   {bal_u:,} Units ({bal_kg:,.2f} KG)\n📍 {cs_name}   •   ⏳ {days_held} days (Since {lot_row['Outward Date']})   •   👉 Tap to Retrieve"
+                lot_btn_label = f"📦 Lot {lot_no} — {item_name}   •   {bal_u:,} Units ({bal_kg:,.2f} KG)   •   📍 {cs_name}   •   ⏳ {days_held}d (Since {lot_row['Outward Date']})   •   👉 Tap to Retrieve"
                 st.button(
                     lot_btn_label,
                     key=f"btn_card_lot_{lot_no}",
@@ -710,7 +710,7 @@ if selected_tab == "📊 Operational Dashboard":
 
                 for _, it_row in item_grp.iterrows():
                     item_name = it_row["Item Name"]
-                    fac_btn_label = f"🌶️ {item_name}   •   {int(it_row['Bal. Units']):,} Units ({it_row['Bal. Total Qty (KG)']:,.2f} KG)\n📦 Active Lots: {it_row['Lot No.']}   •   👉 Tap to Record Outward"
+                    fac_btn_label = f"🌶️ {item_name}   •   {int(it_row['Bal. Units']):,} Units ({it_row['Bal. Total Qty (KG)']:,.2f} KG)   •   📦 Lots: {it_row['Lot No.']}   •   👉 Tap to Record Outward"
                     
                     st.button(
                         fac_btn_label,
@@ -869,7 +869,6 @@ elif selected_tab == "1. Outward Register":
               }
 
               if (unitsInput && !unitsInput.dataset.liveListened) {
-                  unitsInput.dataset.liveListened = "true";
                   unitsInput.dataset.liveListened = "true";
                   unitsInput.addEventListener('input', update);
                   unitsInput.addEventListener('keyup', update);
