@@ -640,10 +640,9 @@ if selected_tab == "📊 Operational Dashboard":
     total_bal_kg = active_df["Bal. Total Qty (KG)"].sum()
     total_bal_u = active_df["Bal. Units"].sum()
     active_lots_count = len(active_df)
-    unique_storages_count = active_df["Cold Storage"].nunique()
 
-    # 1. LUXURY GLASS KPI STAT CARDS
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    # 1. INTERACTIVE TOP KPI STAT CARDS (CLICKABLE REDIRECTION)
+    kpi1, kpi2, kpi3 = st.columns(3)
     with kpi1:
       st.markdown(
           f"""
@@ -655,6 +654,15 @@ if selected_tab == "📊 Operational Dashboard":
           """,
           unsafe_allow_html=True,
       )
+      if st.button(
+          "👉 View Summary by Weight",
+          key="btn_kpi_weight",
+          use_container_width=True,
+          help="Click to view detailed Stock Summary",
+      ):
+        st.session_state.nav_selection = "3. Stock Summary"
+        st.rerun()
+
     with kpi2:
       st.markdown(
           f"""
@@ -666,28 +674,27 @@ if selected_tab == "📊 Operational Dashboard":
           """,
           unsafe_allow_html=True,
       )
+      if st.button(
+          "👉 View Summary by Units",
+          key="btn_kpi_units",
+          use_container_width=True,
+          help="Click to view detailed Stock Summary",
+      ):
+        st.session_state.nav_selection = "3. Stock Summary"
+        st.rerun()
+
     with kpi3:
       st.markdown(
           f"""
           <div class="kpi-card">
               <div class="kpi-title">🏷️ Active Batches</div>
               <div class="kpi-value">{active_lots_count} <span style="font-size:16px; font-weight:600;">Lots</span></div>
-              <div class="kpi-sub">Click below to retrieve</div>
+              <div class="kpi-sub">Un-cleared batches</div>
           </div>
           """,
           unsafe_allow_html=True,
       )
-    with kpi4:
-      st.markdown(
-          f"""
-          <div class="kpi-card">
-              <div class="kpi-title">🏬 Cold Storages</div>
-              <div class="kpi-value">{unique_storages_count} <span style="font-size:16px; font-weight:600;">Facilities</span></div>
-              <div class="kpi-sub">Live partner locations</div>
-          </div>
-          """,
-          unsafe_allow_html=True,
-      )
+      st.caption("ℹ️ Click directory below to retrieve")
 
     st.write("")
 
@@ -790,7 +797,7 @@ if selected_tab == "📊 Operational Dashboard":
 
     st.divider()
 
-    # 3. INTERACTIVE FACILITY BREAKDOWN (OUTWARD ONLY) & QUICK FINDER
+    # 3. INTERACTIVE FACILITY BREAKDOWN & QUICK FINDER
     col_fac, col_find = st.columns([1.35, 0.65])
 
     with col_fac:
@@ -1064,7 +1071,6 @@ elif selected_tab == "1. Outward Register":
 
           if (unitsInput && !unitsInput.dataset.liveListened) {
               unitsInput.dataset.liveListened = "true";
-              unitsInput.dataset.liveListened = "true";
               unitsInput.addEventListener('input', update);
               unitsInput.addEventListener('keyup', update);
               unitsInput.addEventListener('change', update);
@@ -1315,7 +1321,6 @@ elif selected_tab == "2. Inward Register":
   all_active_items = sorted(list(set(r[1] for r in active_records)))
   all_active_lots = sorted(list(set(r[0] for r in active_records)))
 
-  # Set default lookup mode to Lot if prefill_lot is set, else Reverse if item set
   if st.session_state.prefill_lot:
     default_mode_idx = 0
   elif st.session_state.prefill_item:
