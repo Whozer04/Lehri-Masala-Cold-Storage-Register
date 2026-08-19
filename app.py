@@ -4,6 +4,8 @@ import os
 import re
 import sqlite3
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
@@ -130,6 +132,7 @@ def compute_stock_summary_df(out_df, in_df):
     return pd.DataFrame(
         columns=[
             "Lot No.",
+            "Outward Date",
             "Cold Storage",
             "Item Name",
             "Unit Qty (KG)",
@@ -180,6 +183,7 @@ def compute_stock_summary_df(out_df, in_df):
   return df_sum.rename(
       columns={
           "receipt_no": "Lot No.",
+          "entry_date": "Outward Date",
           "cold_storage": "Cold Storage",
           "item_name": "Item Name",
           "unit_size": "Unit Qty (KG)",
@@ -188,6 +192,7 @@ def compute_stock_summary_df(out_df, in_df):
   )[
       [
           "Lot No.",
+          "Outward Date",
           "Cold Storage",
           "Item Name",
           "Unit Qty (KG)",
@@ -218,10 +223,7 @@ def save_outward_entry(record):
   new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
   conn.update(worksheet="outward", data=new_df)
 
-  # Invalidate read cache immediately
   get_outward_df.clear()
-
-  # Recalculate and update summary
   df_i = get_inward_df()
   df_s = compute_stock_summary_df(new_df, df_i)
   sync_sheet_stock_summary(df_s)
@@ -238,39 +240,25 @@ def save_inward_entry(record):
   new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
   conn.update(worksheet="inward", data=new_df)
 
-  # Invalidate read cache immediately
   get_inward_df.clear()
-
-  # Recalculate and update summary
   df_o = get_outward_df()
   df_s = compute_stock_summary_df(df_o, new_df)
   sync_sheet_stock_summary(df_s)
 
 
-# ---------------------------------------------------------
-# AUTO-BACKUP ENGINE (SQLite .db export)
-# ---------------------------------------------------------
 def generate_sqlite_backup(df_o, df_i, df_s):
-  """Builds a local SQLite .db binary in memory for instant download."""
   db_buffer = io.BytesIO()
   temp_conn = sqlite3.connect(":memory:")
-
   df_o.to_sql("outward", temp_conn, if_exists="replace", index=False)
   df_i.to_sql("inward", temp_conn, if_exists="replace", index=False)
   df_s.to_sql("stock_summary", temp_conn, if_exists="replace", index=False)
-
-  # Dump memory database into bytes
   for line in temp_conn.iterdump():
     db_buffer.write(f"{line}\n".encode("utf-8"))
-
   temp_conn.close()
   db_buffer.seek(0)
   return db_buffer
 
 
-# ---------------------------------------------------------
-# HELPER FUNCTIONS
-# ---------------------------------------------------------
 def format_date_str(d_val):
   if isinstance(d_val, (datetime.date, datetime.datetime)):
     return d_val.strftime("%d/%m/%y")
@@ -399,7 +387,7 @@ with col_title:
       unsafe_allow_html=True,
   )
 
-# Fetch data
+# Fetch Data
 df_raw_out = get_outward_df()
 df_raw_in = get_inward_df()
 df_sum = compute_stock_summary_df(df_raw_out, df_raw_in)
@@ -414,7 +402,6 @@ with st.sidebar:
   st.divider()
   st.header("💾 Automatic Database Backup")
 
-  # Generate SQLite backup buffer
   db_backup_bytes = generate_sqlite_backup(df_raw_out, df_raw_in, df_sum)
   backup_name = (
       f"cold_storage_backup_{datetime.date.today().strftime('%Y%m%d')}.sql"
@@ -435,14 +422,168 @@ with st.sidebar:
     st.rerun()
 
 # ---------------------------------------------------------
-# APPLICATION TABS
+# APPLICATION TABS (WITH DASHBOARD TAB)
 # ---------------------------------------------------------
-tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
+tab_dash, tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
+    "📊 Analytics Dashboard",
     "1. Outward Register",
     "2. Inward Register",
     "3. Stock Summary",
     "4. Custom Reports",
 ])
+
+# =========================================================
+# TAB: ANALYTICS DASHBOARD
+# =========================================================
+with tab_dash:
+  st.subheader("Inventory & Warehouse Performance")
+
+  # KPI calculations
+  total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
+  total_inward_u = df_sum["Inward Units"].sum() if not df_sum.empty else 0
+  total_bal_u = df_sum["Bal. Units"].sum() if not df_sum.empty else 0
+  total_bal_kg = df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
+
+  active_df = (
+      df_sum[df_sum["Bal. Units"] > 0].copy()
+      if not df_sum.empty
+      else pd.DataFrame()
+  )
+  active_lots_count = len(active_df)
+  cleared_lots_count = (
+      len(df_sum[df_sum["Status"] == "CLEARED"]) if not df_sum.empty else 0
+  )
+  clearance_rate = (
+      (cleared_lots_count / len(df_sum) * 100) if len(df_sum) > 0 else 0.0
+  )
+
+  # KPI Cards
+  kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+  kpi1.metric("Current Stored Weight", f"{total_bal_kg:,.2f} KG")
+  kpi2.metric(
+      "Remaining Units",
+      f"{int(total_bal_u):,} Units",
+      f"{int(total_inward_u):,} Retrieved",
+  )
+  kpi3.metric("Active Batches", f"{active_lots_count} Lots")
+  kpi4.metric("Batch Clearance Rate", f"{clearance_rate:.1f}%")
+
+  st.divider()
+
+  if not active_df.empty:
+    col_g1, col_g2 = st.columns(2)
+
+    # 1. Cold Storage Share
+    with col_g1:
+      st.markdown("##### 🏢 Stock by Cold Storage Facility (KG)")
+      cs_summary = (
+          active_df.groupby("Cold Storage")["Bal. Total Qty (KG)"]
+          .sum()
+          .reset_index()
+      )
+      fig_cs = px.pie(
+          cs_summary,
+          values="Bal. Total Qty (KG)",
+          names="Cold Storage",
+          hole=0.45,
+          color_discrete_sequence=px.colors.qualitative.Safe,
+      )
+      fig_cs.update_traces(
+          textposition="inside", textinfo="percent+label", hoverinfo="value"
+      )
+      fig_cs.update_layout(
+          margin=dict(t=20, b=20, l=10, r=10), height=320, showlegend=False
+      )
+      st.plotly_chart(fig_cs, use_container_width=True)
+
+    # 2. Item Distribution Bar Chart
+    with col_g2:
+      st.markdown("##### 🌶️ Top Items in Storage (KG)")
+      item_summary = (
+          active_df.groupby("Item Name")["Bal. Total Qty (KG)"]
+          .sum()
+          .reset_index()
+          .sort_values("Bal. Total Qty (KG)", ascending=True)
+      )
+      fig_items = px.bar(
+          item_summary,
+          x="Bal. Total Qty (KG)",
+          y="Item Name",
+          orientation="h",
+          color="Bal. Total Qty (KG)",
+          color_continuous_scale="Blues",
+      )
+      fig_items.update_layout(
+          margin=dict(t=20, b=20, l=10, r=10),
+          height=320,
+          coloraxis_showscale=False,
+      )
+      st.plotly_chart(fig_items, use_container_width=True)
+
+    # 3. Storage Aging Breakdown
+    st.markdown("##### ⏳ Storage Aging Breakdown (Active Lots)")
+
+    today = datetime.date.today()
+
+    def calc_age(d_str):
+      dt = parse_to_date_obj(d_str)
+      return (today - dt).days if dt else 0
+
+    active_df["age_days"] = active_df["Outward Date"].apply(calc_age)
+
+    def age_bucket(days):
+      if days <= 30:
+        return "0-30 Days (Fresh)"
+      elif days <= 60:
+        return "31-60 Days"
+      elif days <= 90:
+        return "61-90 Days"
+      else:
+        return "90+ Days (Aging)"
+
+    active_df["Aging Bucket"] = active_df["age_days"].apply(age_bucket)
+    aging_summary = (
+        active_df.groupby("Aging Bucket")
+        .agg({"Lot No.": "count", "Bal. Total Qty (KG)": "sum"})
+        .reset_index()
+    )
+
+    col_age1, col_age2 = st.columns([1, 1])
+    with col_age1:
+      fig_age = px.bar(
+          aging_summary,
+          x="Aging Bucket",
+          y="Bal. Total Qty (KG)",
+          color="Aging Bucket",
+          color_discrete_map={
+              "0-30 Days (Fresh)": "#10B981",
+              "31-60 Days": "#FBBF24",
+              "61-90 Days": "#F97316",
+              "90+ Days (Aging)": "#EF4444",
+          },
+      )
+      fig_age.update_layout(
+          margin=dict(t=20, b=20, l=10, r=10), height=300, showlegend=False
+      )
+      st.plotly_chart(fig_age, use_container_width=True)
+
+    with col_age2:
+      st.markdown("###### Detailed Aging Status")
+      st.dataframe(
+          active_df[[
+              "Lot No.",
+              "Item Name",
+              "Cold Storage",
+              "age_days",
+              "Bal. Units",
+              "Bal. Total Qty (KG)",
+          ]].rename(columns={"age_days": "Days in Storage"}),
+          use_container_width=True,
+          hide_index=True,
+      )
+
+  else:
+    st.info("No active stock available. Record Outward entries to see charts.")
 
 # =========================================================
 # TAB 1: OUTWARD REGISTER
@@ -668,8 +809,8 @@ with tab_inward:
 
   active_records = []
   if not df_sum.empty:
-    active_df = df_sum[df_sum["Bal. Units"] > 0]
-    for _, row in active_df.iterrows():
+    active_df_in = df_sum[df_sum["Bal. Units"] > 0]
+    for _, row in active_df_in.iterrows():
       active_records.append((
           str(row["Lot No."]),
           str(row["Item Name"]),
@@ -864,11 +1005,6 @@ with tab_summary:
   st.subheader("Live Cold Storage Stock Summary")
 
   m1, m2, m3, m4 = st.columns(4)
-  total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
-  total_inward_u = df_sum["Inward Units"].sum() if not df_sum.empty else 0
-  total_bal_u = df_sum["Bal. Units"].sum() if not df_sum.empty else 0
-  total_bal_kg = df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
-
   m1.metric("Total Dispatched", f"{int(total_outward_u):,} Units")
   m2.metric("Total Retrieved", f"{int(total_inward_u):,} Units")
   m3.metric("Remaining In Storage", f"{int(total_bal_u):,} Units")
