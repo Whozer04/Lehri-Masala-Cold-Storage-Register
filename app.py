@@ -238,7 +238,7 @@ st.markdown(f"""
         margin-top: 3px;
     }}
 
-    /* Minimal Finder Location Row */
+    /* Finder Location Summary Row */
     .finder-loc-card {{
         background: var(--background-color);
         border: 1px solid rgba(120, 120, 128, 0.16);
@@ -463,7 +463,7 @@ def update_inward_entry(entry_id, updated_record):
         for k, v in updated_record.items():
             df.loc[idx[0], k] = v
         conn.update(worksheet="inward", data=df)
-        get_outward_df.clear()
+        get_inward_df.clear()
         df_o = get_outward_df()
         df_s = compute_stock_summary_df(df_o, df)
         sync_sheet_stock_summary(df_s)
@@ -576,7 +576,7 @@ with col_h1:
         st.image("logo.png", width=95)
 with col_h2:
     st.markdown("<div class='main-header'>Lehri Masala Cold Storage Register</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Apple-Engineered Inventory Tracking & Precision Cold Ledger</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-header'>Cloud-Enabled Batch Tracking & Inventory Ledger</div>", unsafe_allow_html=True)
 
 # Fetch Data
 df_raw_out = get_outward_df()
@@ -602,7 +602,7 @@ with st.sidebar:
 
     st.divider()
     st.header("☁️ Cloud Storage")
-    st.success("Apple Cloud Sync: Active")
+    st.success("Google Drive Sync: Active")
     
     st.divider()
     st.header("💾 Automatic Database Backup")
@@ -770,7 +770,7 @@ if selected_tab == "📊 Operational Dashboard":
 
         st.divider()
 
-        # 4. QUICK ITEM STOCK FINDER (CLEAN TOTALS PER LOCATION)
+        # 4. QUICK ITEM STOCK FINDER (WITH RESPECTIVE LOCATION BREAKDOWN)
         st.markdown("##### ⚡ Quick Item Stock Finder")
         with st.container(border=True):
             avail_items = sorted(list(active_df["Item Name"].unique()))
@@ -788,7 +788,6 @@ if selected_tab == "📊 Operational Dashboard":
                 st.metric(f"Total {selected_finder_item}", f"{tot_item_kg:,.2f} KG", f"{int(tot_item_u)} Units Available")
                 
                 st.write("")
-                # Clean location summary
                 loc_grp = item_rows.groupby("Cold Storage").agg({
                     "Bal. Units": "sum",
                     "Bal. Total Qty (KG)": "sum"
