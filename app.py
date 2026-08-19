@@ -2,10 +2,10 @@ import datetime
 import io
 import os
 import re
-import sqlite3
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
 
 # Optional ReportLab support for PDF generation
 try:
@@ -75,45 +75,67 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # ---------------------------------------------------------
-# DATABASE ENGINE
+# GOOGLE DRIVE / SHEETS DATABASE ENGINE
 # ---------------------------------------------------------
-def get_db_connection():
-  conn = sqlite3.connect("cold_storage.db", check_same_thread=False)
-  return conn
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+OUTWARD_COLS = [
+    "id",
+    "entry_date",
+    "reference_no",
+    "receipt_no",
+    "cold_storage",
+    "item_name",
+    "qty",
+    "unit_size",
+    "total_qty",
+]
+INWARD_COLS = ["id", "entry_date", "receipt_no", "item_name", "qty"]
 
 
-def init_db():
-  conn = get_db_connection()
-  cursor = conn.cursor()
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS outward (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_date TEXT,
-            reference_no TEXT,
-            receipt_no TEXT UNIQUE,
-            cold_storage TEXT,
-            item_name TEXT,
-            qty INTEGER,
-            unit_size REAL DEFAULT 0,
-            total_qty REAL DEFAULT 0
-        )
-    """)
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS inward (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_date TEXT,
-            receipt_no TEXT,
-            item_name TEXT,
-            qty INTEGER
-        )
-    """)
-  conn.commit()
-  conn.close()
+def get_outward_df():
+  try:
+    df = conn.read(worksheet="outward", ttl=0)
+    if df is None or df.empty:
+      return pd.DataFrame(columns=OUTWARD_COLS)
+    df = df.dropna(how="all")
+    for col in OUTWARD_COLS:
+      if col not in df.columns:
+        df[col] = ""
+    return df
+  except Exception:
+    return pd.DataFrame(columns=OUTWARD_COLS)
 
 
-init_db()
+def get_inward_df():
+  try:
+    df = conn.read(worksheet="inward", ttl=0)
+    if df is None or df.empty:
+      return pd.DataFrame(columns=INWARD_COLS)
+    df = df.dropna(how="all")
+    for col in INWARD_COLS:
+      if col not in df.columns:
+        df[col] = ""
+    return df
+  except Exception:
+    return pd.DataFrame(columns=INWARD_COLS)
+
+
+def save_outward_entry(record):
+  df = get_outward_df()
+  next_id = int(df["id"].max()) + 1 if not df.empty and str(df["id"].max()).isdigit() else 1
+  record["id"] = next_id
+  new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
+  conn.update(worksheet="outward", data=new_df)
+
+
+def save_inward_entry(record):
+  df = get_inward_df()
+  next_id = int(df["id"].max()) + 1 if not df.empty and str(df["id"].max()).isdigit() else 1
+  record["id"] = next_id
+  new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
+  conn.update(worksheet="inward", data=new_df)
 
 
 # ---------------------------------------------------------
@@ -248,35 +270,15 @@ with col_title:
   )
 
 # ---------------------------------------------------------
-# SIDEBAR / DATABASE TOOLS
+# SIDEBAR / STATUS
 # ---------------------------------------------------------
 with st.sidebar:
-  st.header("⚙️ Database & Security")
+  st.header("☁️ Cloud Storage")
+  st.success("Connected to Google Drive Database.")
 
-  if os.path.exists("cold_storage.db"):
-    with open("cold_storage.db", "rb") as f:
-      st.download_button(
-          label="💾 Download DB Backup",
-          data=f,
-          file_name=f"cold_storage_backup_{datetime.date.today().strftime('%Y%m%d')}.db",
-          mime="application/x-sqlite3",
-          use_container_width=True,
-      )
-
-  if st.button("🛡️ Check DB Integrity", use_container_width=True):
-    conn = get_db_connection()
-    res = conn.execute("PRAGMA integrity_check;").fetchone()[0]
-    conn.close()
-    if res == "ok":
-      st.success("Database status: Healthy (0 errors).")
-    else:
-      st.warning(f"Integrity alert: {res}")
-
-  if st.button("⚡ Optimize DB (VACUUM)", use_container_width=True):
-    conn = get_db_connection()
-    conn.execute("VACUUM;")
-    conn.close()
-    st.success("Database compressed and optimized.")
+  if st.button("🔄 Refresh Data Cache", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
 
 # ---------------------------------------------------------
 # APPLICATION TABS
@@ -288,29 +290,22 @@ tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
     "4. Custom Reports",
 ])
 
+# Read data from Google Drive
+df_raw_out = get_outward_df()
+df_raw_in = get_inward_df()
+
 # =========================================================
 # TAB 1: OUTWARD REGISTER
 # =========================================================
 with tab_outward:
   st.subheader("Record Outward Dispatch")
 
-  conn = get_db_connection()
-  cursor = conn.cursor()
-  cs_opts = [
-      r[0]
-      for r in cursor.execute(
-          "SELECT DISTINCT cold_storage FROM outward WHERE cold_storage IS NOT"
-          " NULL AND cold_storage != '' ORDER BY cold_storage"
-      ).fetchall()
-  ]
-  item_opts = [
-      r[0]
-      for r in cursor.execute(
-          "SELECT DISTINCT item_name FROM outward WHERE item_name IS NOT NULL"
-          " AND item_name != '' ORDER BY item_name"
-      ).fetchall()
-  ]
-  conn.close()
+  cs_opts = sorted(
+      [str(x) for x in df_raw_out["cold_storage"].dropna().unique() if str(x).strip()]
+  )
+  item_opts = sorted(
+      [str(x) for x in df_raw_out["item_name"].dropna().unique() if str(x).strip()]
+  )
 
   r1c1, r1c2, r1c3 = st.columns(3)
   out_date = r1c1.date_input(
@@ -429,78 +424,71 @@ with tab_outward:
           " '/'."
       )
     else:
-      conn = get_db_connection()
-      dup_check = conn.execute(
-          "SELECT COUNT(*) FROM outward WHERE receipt_no = ?", (out_lot_clean,)
-      ).fetchone()[0]
-      if dup_check > 0:
+      existing_lots = df_raw_out["receipt_no"].astype(str).tolist()
+      if out_lot_clean in existing_lots:
         st.error(
             f"Lot No. '{out_lot_clean}' already exists! Duplicates are not"
             " permitted."
         )
       else:
-        conn.execute(
-            """
-                    INSERT INTO outward (entry_date, reference_no, receipt_no, cold_storage, item_name, qty, unit_size, total_qty)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-            (
-                format_date_str(out_date),
-                out_ref.strip() or "-",
-                out_lot_clean,
-                final_cs,
-                final_item,
-                int(out_units),
-                float(out_unit_size),
-                float(auto_total_weight),
-            ),
-        )
-        conn.commit()
+        new_record = {
+            "entry_date": format_date_str(out_date),
+            "reference_no": out_ref.strip() or "-",
+            "receipt_no": out_lot_clean,
+            "cold_storage": final_cs,
+            "item_name": final_item,
+            "qty": int(out_units),
+            "unit_size": float(out_unit_size),
+            "total_qty": float(auto_total_weight),
+        }
+        with st.spinner("Saving to Google Drive..."):
+          save_outward_entry(new_record)
         st.success(
             f"Saved: Lot '{out_lot_clean}' ({out_units} units of {final_item})"
         )
         st.rerun()
-      conn.close()
 
   st.divider()
 
-  conn = get_db_connection()
-  df_out = pd.read_sql_query(
-      """
-        SELECT id AS "ID", entry_date AS "Date", reference_no AS "Reference No.", 
-               receipt_no AS "Lot No.", cold_storage AS "Cold Storage", 
-               item_name AS "Item Name", qty AS "Units", unit_size AS "Unit Qty (KG)", 
-               total_qty AS "Total Qty (KG)"
-        FROM outward ORDER BY id DESC
-    """,
-      conn,
-  )
-  conn.close()
+  df_out_display = df_raw_out.copy()
+  if not df_out_display.empty:
+    df_out_display = df_out_display.rename(
+        columns={
+            "id": "ID",
+            "entry_date": "Date",
+            "reference_no": "Reference No.",
+            "receipt_no": "Lot No.",
+            "cold_storage": "Cold Storage",
+            "item_name": "Item Name",
+            "qty": "Units",
+            "unit_size": "Unit Qty (KG)",
+            "total_qty": "Total Qty (KG)",
+        }
+    )
+    df_out_display = df_out_display.iloc[::-1]
 
   search_out = st.text_input("🔍 Search Outward Records (Type to Filter)", key="search_out")
-  if search_out:
-    df_out = df_out[
-        df_out.apply(
-            lambda row: row.astype(str)
-            .str.contains(search_out, case=False)
-            .any(),
+  if search_out and not df_out_display.empty:
+    df_out_display = df_out_display[
+        df_out_display.apply(
+            lambda row: row.astype(str).str.contains(search_out, case=False).any(),
             axis=1,
         )
     ]
 
-  st.dataframe(df_out, use_container_width=True, hide_index=True)
+  st.dataframe(df_out_display, use_container_width=True, hide_index=True)
 
   c_exp1, c_exp2 = st.columns(2)
   with c_exp1:
     st.download_button(
         "📥 Export to CSV / Excel",
-        df_out.to_csv(index=False).encode("utf-8"),
+        df_out_display.to_csv(index=False).encode("utf-8"),
         "Outward_Register.csv",
         "text/csv",
         use_container_width=True,
     )
   with c_exp2:
-    pdf_buffer = generate_pdf(df_out, "Outward Register Report")
+    pdf_buffer = generate_pdf(df_out_display, "Outward Register Report")
     if pdf_buffer:
       st.download_button(
           "📄 Export to PDF",
@@ -511,30 +499,43 @@ with tab_outward:
       )
 
 # =========================================================
-# TAB 2: INWARD REGISTER (BIDIRECTIONAL SMART LOOKUP)
+# TAB 2: INWARD REGISTER (BIDIRECTIONAL LOOKUP)
 # =========================================================
 with tab_inward:
   st.subheader("Record Inward Retrieval")
 
-  # Fetch all active available stock records
-  conn = get_db_connection()
-  active_records = conn.execute(
-      """
-        SELECT o.receipt_no, o.item_name, o.cold_storage, (o.qty - COALESCE(i.total_inward, 0)) AS bal_units
-        FROM outward o
-        LEFT JOIN (
-            SELECT receipt_no, item_name, SUM(qty) as total_inward FROM inward GROUP BY receipt_no, item_name
-        ) i ON o.receipt_no = i.receipt_no AND o.item_name = i.item_name
-        WHERE (o.qty - COALESCE(i.total_inward, 0)) > 0
-        ORDER BY o.item_name, o.receipt_no
-    """
-  ).fetchall()
-  conn.close()
+  # Calculate Active Stocks
+  active_records = []
+  if not df_raw_out.empty:
+    out_df = df_raw_out.copy()
+    in_df = df_raw_in.copy()
+    out_df["qty"] = pd.to_numeric(out_df["qty"], errors="coerce").fillna(0)
+    out_df["unit_size"] = pd.to_numeric(out_df["unit_size"], errors="coerce").fillna(0)
+    
+    if not in_df.empty:
+      in_df["qty"] = pd.to_numeric(in_df["qty"], errors="coerce").fillna(0)
+      in_grouped = in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
+      in_grouped.rename(columns={"qty": "inward_qty"}, inplace=True)
+      merged = pd.merge(out_df, in_grouped, on=["receipt_no", "item_name"], how="left")
+    else:
+      merged = out_df.copy()
+      merged["inward_qty"] = 0
+
+    merged["inward_qty"] = merged["inward_qty"].fillna(0)
+    merged["bal_units"] = merged["qty"] - merged["inward_qty"]
+    active_df = merged[merged["bal_units"] > 0]
+
+    for _, row in active_df.iterrows():
+      active_records.append((
+          str(row["receipt_no"]),
+          str(row["item_name"]),
+          str(row["cold_storage"]),
+          int(row["bal_units"]),
+      ))
 
   all_active_items = sorted(list(set(r[1] for r in active_records)))
   all_active_lots = sorted(list(set(r[0] for r in active_records)))
 
-  # Selection Mode Radio (Choose By Lot No. or By Item Name)
   lookup_mode = st.radio(
       "Lookup Method:",
       ["Search by Lot No.", "Search by Item Name (Reverse Lookup)"],
@@ -563,7 +564,7 @@ with tab_inward:
       matching = [r for r in active_records if r[0] == sel_in_lot]
       item_candidates = [m[1] for m in matching]
       sel_lot_final = sel_in_lot
-      
+
       r2c1, r2c2 = st.columns(2)
       sel_item_final = r2c1.selectbox(
           "Allotted Item Name *",
@@ -587,7 +588,7 @@ with tab_inward:
       r2c1.selectbox("Allotted Item Name *", options=["(Select Lot No. first)"], disabled=True)
       in_qty = r2c2.number_input("Inward Units Received *", min_value=1, value=1, disabled=True)
 
-  else:  # Reverse Lookup by Item Name
+  else:
     sel_in_item = r1c2.selectbox(
         "Select Stored Item Name *",
         options=[""] + all_active_items,
@@ -604,8 +605,6 @@ with tab_inward:
           options=lot_candidates,
           key="in_lot_sel_by_item",
       )
-      
-      # Extract actual lot number
       sel_lot_final = sel_lot_display.split(" ")[0] if sel_lot_display else ""
       curr_rec = [m for m in matching if m[0] == sel_lot_final]
       max_avail_units = max(1, int(curr_rec[0][3])) if curr_rec else 1
@@ -634,16 +633,14 @@ with tab_inward:
     if not (sel_lot_final and sel_item_final and in_qty > 0):
       st.error("Please select a valid Lot No. and Item Name.")
     else:
-      conn = get_db_connection()
-      conn.execute(
-          """
-                INSERT INTO inward (entry_date, receipt_no, item_name, qty)
-                VALUES (?, ?, ?, ?)
-            """,
-          (format_date_str(in_date), sel_lot_final, sel_item_final, int(in_qty)),
-      )
-      conn.commit()
-      conn.close()
+      new_inward_record = {
+          "entry_date": format_date_str(in_date),
+          "receipt_no": sel_lot_final,
+          "item_name": sel_item_final,
+          "qty": int(in_qty),
+      }
+      with st.spinner("Saving to Google Drive..."):
+        save_inward_entry(new_inward_record)
       st.success(
           f"Retrieved {in_qty} units of '{sel_item_final}' from Lot '{sel_lot_final}'."
       )
@@ -651,39 +648,41 @@ with tab_inward:
 
   st.divider()
 
-  conn = get_db_connection()
-  df_in = pd.read_sql_query(
-      """
-        SELECT id AS "ID", entry_date AS "Date", receipt_no AS "Lot No.", 
-               item_name AS "Item Name", qty AS "Inward Units Received"
-        FROM inward ORDER BY id DESC
-    """,
-      conn,
-  )
-  conn.close()
+  df_in_display = df_raw_in.copy()
+  if not df_in_display.empty:
+    df_in_display = df_in_display.rename(
+        columns={
+            "id": "ID",
+            "entry_date": "Date",
+            "receipt_no": "Lot No.",
+            "item_name": "Item Name",
+            "qty": "Inward Units Received",
+        }
+    )
+    df_in_display = df_in_display.iloc[::-1]
 
   search_in = st.text_input("🔍 Search Inward Records (Type to Filter)", key="search_in")
-  if search_in:
-    df_in = df_in[
-        df_in.apply(
+  if search_in and not df_in_display.empty:
+    df_in_display = df_in_display[
+        df_in_display.apply(
             lambda row: row.astype(str).str.contains(search_in, case=False).any(),
             axis=1,
         )
     ]
 
-  st.dataframe(df_in, use_container_width=True, hide_index=True)
+  st.dataframe(df_in_display, use_container_width=True, hide_index=True)
 
   c_in1, c_in2 = st.columns(2)
   with c_in1:
     st.download_button(
         "📥 Export to CSV / Excel",
-        df_in.to_csv(index=False).encode("utf-8"),
+        df_in_display.to_csv(index=False).encode("utf-8"),
         "Inward_Register.csv",
         "text/csv",
         use_container_width=True,
     )
   with c_in2:
-    pdf_in_buf = generate_pdf(df_in, "Inward Register Report")
+    pdf_in_buf = generate_pdf(df_in_display, "Inward Register Report")
     if pdf_in_buf:
       st.download_button(
           "📄 Export to PDF",
@@ -699,43 +698,76 @@ with tab_inward:
 with tab_summary:
   st.subheader("Live Cold Storage Stock Summary")
 
-  conn = get_db_connection()
-  df_sum = pd.read_sql_query(
-      """
-        SELECT 
-            o.receipt_no AS "Lot No.",
-            o.cold_storage AS "Cold Storage",
-            o.item_name AS "Item Name",
-            o.unit_size AS "Unit Qty (KG)",
-            o.qty AS "Outward Units",
-            COALESCE(SUM(i.qty), 0) AS "Inward Units",
-            (o.qty - COALESCE(SUM(i.qty), 0)) AS "Bal. Units",
-            (o.total_qty - (COALESCE(SUM(i.qty), 0) * o.unit_size)) AS "Bal. Total Qty (KG)",
-            CASE 
-                WHEN (o.qty - COALESCE(SUM(i.qty), 0)) <= 0 THEN 'CLEARED'
-                WHEN COALESCE(SUM(i.qty), 0) > 0 THEN 'PARTIAL'
-                ELSE 'UNTOUCHED'
-            END AS "Status"
-        FROM outward o
-        LEFT JOIN inward i ON o.receipt_no = i.receipt_no AND o.item_name = i.item_name
-        GROUP BY o.id
-        ORDER BY o.receipt_no
-    """,
-      conn,
-  )
-  conn.close()
+  if not df_raw_out.empty:
+    out_df = df_raw_out.copy()
+    in_df = df_raw_in.copy()
+    out_df["qty"] = pd.to_numeric(out_df["qty"], errors="coerce").fillna(0)
+    out_df["unit_size"] = pd.to_numeric(out_df["unit_size"], errors="coerce").fillna(0)
+    out_df["total_qty"] = pd.to_numeric(out_df["total_qty"], errors="coerce").fillna(0)
+
+    if not in_df.empty:
+      in_df["qty"] = pd.to_numeric(in_df["qty"], errors="coerce").fillna(0)
+      in_grouped = in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
+      in_grouped.rename(columns={"qty": "Inward Units"}, inplace=True)
+      df_sum = pd.merge(out_df, in_grouped, on=["receipt_no", "item_name"], how="left")
+    else:
+      df_sum = out_df.copy()
+      df_sum["Inward Units"] = 0
+
+    df_sum["Inward Units"] = df_sum["Inward Units"].fillna(0)
+    df_sum["Bal. Units"] = df_sum["qty"] - df_sum["Inward Units"]
+    df_sum["Bal. Total Qty (KG)"] = df_sum["Bal. Units"] * df_sum["unit_size"]
+    
+    df_sum["Status"] = df_sum.apply(
+        lambda r: "CLEARED" if r["Bal. Units"] <= 0 else ("PARTIAL" if r["Inward Units"] > 0 else "UNTOUCHED"),
+        axis=1,
+    )
+
+    df_sum = df_sum.rename(
+        columns={
+            "receipt_no": "Lot No.",
+            "cold_storage": "Cold Storage",
+            "item_name": "Item Name",
+            "unit_size": "Unit Qty (KG)",
+            "qty": "Outward Units",
+        }
+    )[
+        [
+            "Lot No.",
+            "Cold Storage",
+            "Item Name",
+            "Unit Qty (KG)",
+            "Outward Units",
+            "Inward Units",
+            "Bal. Units",
+            "Bal. Total Qty (KG)",
+            "Status",
+        ]
+    ]
+  else:
+    df_sum = pd.DataFrame(
+        columns=[
+            "Lot No.",
+            "Cold Storage",
+            "Item Name",
+            "Unit Qty (KG)",
+            "Outward Units",
+            "Inward Units",
+            "Bal. Units",
+            "Bal. Total Qty (KG)",
+            "Status",
+        ]
+    )
 
   m1, m2, m3, m4 = st.columns(4)
   total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
   total_inward_u = df_sum["Inward Units"].sum() if not df_sum.empty else 0
   total_bal_u = df_sum["Bal. Units"].sum() if not df_sum.empty else 0
-  total_bal_kg = (
-      df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
-  )
+  total_bal_kg = df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
 
-  m1.metric("Total Dispatched", f"{total_outward_u:,} Units")
-  m2.metric("Total Retrieved", f"{total_inward_u:,} Units")
-  m3.metric("Remaining In Storage", f"{total_bal_u:,} Units")
+  m1.metric("Total Dispatched", f"{int(total_outward_u):,} Units")
+  m2.metric("Total Retrieved", f"{int(total_inward_u):,} Units")
+  m3.metric("Remaining In Storage", f"{int(total_bal_u):,} Units")
   m4.metric("Current Stored Weight", f"{total_bal_kg:,.2f} KG")
 
   st.divider()
@@ -744,31 +776,30 @@ with tab_summary:
   hide_cleared = c_sum_ctrl1.checkbox("Hide Fully Cleared Lots", value=True, key="sum_hide_c")
   search_sum = c_sum_ctrl2.text_input("🔍 Search Stock Summary (Type to Filter)", key="search_sum")
 
-  if hide_cleared:
-    df_sum = df_sum[df_sum["Status"] != "CLEARED"]
-  if search_sum:
-    df_sum = df_sum[
-        df_sum.apply(
-            lambda row: row.astype(str)
-            .str.contains(search_sum, case=False)
-            .any(),
+  df_sum_disp = df_sum.copy()
+  if hide_cleared and not df_sum_disp.empty:
+    df_sum_disp = df_sum_disp[df_sum_disp["Status"] != "CLEARED"]
+  if search_sum and not df_sum_disp.empty:
+    df_sum_disp = df_sum_disp[
+        df_sum_disp.apply(
+            lambda row: row.astype(str).str.contains(search_sum, case=False).any(),
             axis=1,
         )
     ]
 
-  st.dataframe(df_sum, use_container_width=True, hide_index=True)
+  st.dataframe(df_sum_disp, use_container_width=True, hide_index=True)
 
   c_sum1, c_sum2 = st.columns(2)
   with c_sum1:
     st.download_button(
         "📥 Export to CSV / Excel",
-        df_sum.to_csv(index=False).encode("utf-8"),
+        df_sum_disp.to_csv(index=False).encode("utf-8"),
         "Stock_Summary.csv",
         "text/csv",
         use_container_width=True,
     )
   with c_sum2:
-    pdf_sum_buf = generate_pdf(df_sum, "Stock Summary Report")
+    pdf_sum_buf = generate_pdf(df_sum_disp, "Stock Summary Report")
     if pdf_sum_buf:
       st.download_button(
           "📄 Export to PDF",
@@ -784,26 +815,9 @@ with tab_summary:
 with tab_reports:
   st.subheader("Filter & Custom Report Engine")
 
-  conn = get_db_connection()
-  all_lots = ["ALL"] + [
-      r[0]
-      for r in conn.execute(
-          "SELECT DISTINCT receipt_no FROM outward ORDER BY receipt_no"
-      ).fetchall()
-  ]
-  all_cs = ["ALL"] + [
-      r[0]
-      for r in conn.execute(
-          "SELECT DISTINCT cold_storage FROM outward ORDER BY cold_storage"
-      ).fetchall()
-  ]
-  all_items = ["ALL"] + [
-      r[0]
-      for r in conn.execute(
-          "SELECT DISTINCT item_name FROM outward ORDER BY item_name"
-      ).fetchall()
-  ]
-  conn.close()
+  all_lots = ["ALL"] + sorted(list(set(df_raw_out["receipt_no"].dropna().astype(str)))) if not df_raw_out.empty else ["ALL"]
+  all_cs = ["ALL"] + sorted(list(set(df_raw_out["cold_storage"].dropna().astype(str)))) if not df_raw_out.empty else ["ALL"]
+  all_items = ["ALL"] + sorted(list(set(df_raw_out["item_name"].dropna().astype(str)))) if not df_raw_out.empty else ["ALL"]
 
   rf1, rf2, rf3, rf4 = st.columns(4)
   rep_type = rf1.selectbox(
@@ -834,30 +848,8 @@ with tab_reports:
   sel_cs = rf6.selectbox("Cold Storage Filter", options=all_cs, key="rep_cs_f")
   sel_item = rf7.selectbox("Item Filter", options=all_items, key="rep_item_f")
 
-  conn = get_db_connection()
-
-  if rep_group != "None":
-    df_raw = pd.read_sql_query(
-        """
-            SELECT 
-                o.entry_date AS "Date", o.cold_storage AS "Cold Storage", 
-                o.item_name AS "Item Name", o.receipt_no AS "Lot No.",
-                o.qty AS "Outward Units",
-                COALESCE(SUM(i.qty), 0) AS "Inward Units",
-                (o.qty - COALESCE(SUM(i.qty), 0)) AS "Bal. Units",
-                (o.total_qty - (COALESCE(SUM(i.qty), 0) * o.unit_size)) AS "Bal. Weight (KG)"
-            FROM outward o
-            LEFT JOIN inward i ON o.receipt_no = i.receipt_no AND o.item_name = i.item_name
-            GROUP BY o.id
-        """,
-        conn,
-    )
-    conn.close()
-
-    df_raw["dt_obj"] = df_raw["Date"].apply(parse_to_date_obj)
-    df_filtered = df_raw[
-        (df_raw["dt_obj"] >= rep_from_dt) & (df_raw["dt_obj"] <= rep_to_dt)
-    ]
+  if rep_group != "None" and not df_sum.empty:
+    df_filtered = df_sum.copy()
     if sel_lot != "ALL":
       df_filtered = df_filtered[df_filtered["Lot No."] == sel_lot]
     if sel_cs != "ALL":
@@ -873,80 +865,32 @@ with tab_reports:
             "Outward Units": "sum",
             "Inward Units": "sum",
             "Bal. Units": "sum",
-            "Bal. Weight (KG)": "sum",
+            "Bal. Total Qty (KG)": "sum",
         })
         .reset_index()
     )
-    df_res.rename(columns={"Lot No.": "Total Lots / Entries"}, inplace=True)
+    df_res.rename(
+        columns={
+            "Lot No.": "Total Lots / Entries",
+            "Bal. Total Qty (KG)": "Bal. Weight (KG)",
+        },
+        inplace=True,
+    )
     df_res["Bal. Weight (KG)"] = df_res["Bal. Weight (KG)"].round(2)
 
   else:
     if rep_type == "Combined Lot Ledger":
-      df_res = pd.read_sql_query(
-          """
-                SELECT 
-                    o.entry_date AS "Outward Date", o.receipt_no AS "Lot No.", 
-                    o.cold_storage AS "Cold Storage", o.item_name AS "Item Name", 
-                    o.unit_size AS "Unit Qty (KG)", o.qty AS "Outward Units",
-                    COALESCE(SUM(i.qty), 0) AS "Inward Units",
-                    (o.qty - COALESCE(SUM(i.qty), 0)) AS "Bal. Units",
-                    (o.total_qty - (COALESCE(SUM(i.qty), 0) * o.unit_size)) AS "Bal. Weight (KG)",
-                    CASE 
-                        WHEN (o.qty - COALESCE(SUM(i.qty), 0)) <= 0 THEN 'CLEARED'
-                        WHEN COALESCE(SUM(i.qty), 0) > 0 THEN 'PARTIAL'
-                        ELSE 'UNTOUCHED'
-                    END AS "Status"
-                FROM outward o
-                LEFT JOIN inward i ON o.receipt_no = i.receipt_no AND o.item_name = i.item_name
-                GROUP BY o.id ORDER BY o.id DESC
-            """,
-          conn,
-      )
-      date_col = "Outward Date"
+      df_res = df_sum.copy()
+      date_col = None
     elif rep_type == "Outward Register":
-      df_res = pd.read_sql_query(
-          """
-                SELECT id AS "ID", entry_date AS "Date", reference_no AS "Reference No.", 
-                       receipt_no AS "Lot No.", cold_storage AS "Cold Storage", 
-                       item_name AS "Item Name", qty AS "Units", unit_size AS "Unit Qty (KG)", 
-                       total_qty AS "Total Qty (KG)"
-                FROM outward ORDER BY id DESC
-            """,
-          conn,
-      )
+      df_res = df_out_display.copy()
       date_col = "Date"
     elif rep_type == "Inward Register":
-      df_res = pd.read_sql_query(
-          """
-                SELECT id AS "ID", entry_date AS "Date", receipt_no AS "Lot No.", 
-                       item_name AS "Item Name", qty AS "Inward Units Received"
-                FROM inward ORDER BY id DESC
-            """,
-          conn,
-      )
+      df_res = df_in_display.copy()
       date_col = "Date"
     elif rep_type == "Stock Summary":
-      df_res = pd.read_sql_query(
-          """
-                SELECT 
-                    o.receipt_no AS "Lot No.", o.cold_storage AS "Cold Storage", 
-                    o.item_name AS "Item Name", o.unit_size AS "Unit Qty (KG)", 
-                    o.qty AS "Outward Units", COALESCE(SUM(i.qty), 0) AS "Inward Units",
-                    (o.qty - COALESCE(SUM(i.qty), 0)) AS "Bal. Units",
-                    (o.total_qty - (COALESCE(SUM(i.qty), 0) * o.unit_size)) AS "Bal. Total Qty (KG)",
-                    CASE 
-                        WHEN (o.qty - COALESCE(SUM(i.qty), 0)) <= 0 THEN 'CLEARED'
-                        WHEN COALESCE(SUM(i.qty), 0) > 0 THEN 'PARTIAL'
-                        ELSE 'UNTOUCHED'
-                    END AS "Status"
-                FROM outward o
-                LEFT JOIN inward i ON o.receipt_no = i.receipt_no AND o.item_name = i.item_name
-                GROUP BY o.id ORDER BY o.receipt_no
-            """,
-          conn,
-      )
+      df_res = df_sum.copy()
       date_col = None
-    conn.close()
 
     if date_col and not df_res.empty:
       df_res["dt_obj"] = df_res[date_col].apply(parse_to_date_obj)
