@@ -122,12 +122,89 @@ def get_inward_df():
     return pd.DataFrame(columns=INWARD_COLS)
 
 
+def compute_stock_summary_df(out_df, in_df):
+  """Computes live aggregated stock summary table."""
+  if out_df.empty:
+    return pd.DataFrame(
+        columns=[
+            "Lot No.",
+            "Cold Storage",
+            "Item Name",
+            "Unit Qty (KG)",
+            "Outward Units",
+            "Inward Units",
+            "Bal. Units",
+            "Bal. Total Qty (KG)",
+            "Status",
+        ]
+    )
+
+  out_df = out_df.copy()
+  out_df["qty"] = pd.to_numeric(out_df["qty"], errors="coerce").fillna(0)
+  out_df["unit_size"] = pd.to_numeric(out_df["unit_size"], errors="coerce").fillna(0)
+  out_df["total_qty"] = pd.to_numeric(out_df["total_qty"], errors="coerce").fillna(0)
+
+  if not in_df.empty:
+    in_df = in_df.copy()
+    in_df["qty"] = pd.to_numeric(in_df["qty"], errors="coerce").fillna(0)
+    in_grouped = in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
+    in_grouped.rename(columns={"qty": "Inward Units"}, inplace=True)
+    df_sum = pd.merge(out_df, in_grouped, on=["receipt_no", "item_name"], how="left")
+  else:
+    df_sum = out_df.copy()
+    df_sum["Inward Units"] = 0
+
+  df_sum["Inward Units"] = df_sum["Inward Units"].fillna(0)
+  df_sum["Bal. Units"] = df_sum["qty"] - df_sum["Inward Units"]
+  df_sum["Bal. Total Qty (KG)"] = df_sum["Bal. Units"] * df_sum["unit_size"]
+
+  df_sum["Status"] = df_sum.apply(
+      lambda r: "CLEARED" if r["Bal. Units"] <= 0 else ("PARTIAL" if r["Inward Units"] > 0 else "UNTOUCHED"),
+      axis=1,
+  )
+
+  df_sum = df_sum.rename(
+      columns={
+          "receipt_no": "Lot No.",
+          "cold_storage": "Cold Storage",
+          "item_name": "Item Name",
+          "unit_size": "Unit Qty (KG)",
+          "qty": "Outward Units",
+      }
+  )[
+      [
+          "Lot No.",
+          "Cold Storage",
+          "Item Name",
+          "Unit Qty (KG)",
+          "Outward Units",
+          "Inward Units",
+          "Bal. Units",
+          "Bal. Total Qty (KG)",
+          "Status",
+      ]
+  ]
+  return df_sum
+
+
+def sync_sheet_stock_summary():
+  """Updates stock_summary worksheet in Google Drive."""
+  try:
+    df_o = get_outward_df()
+    df_i = get_inward_df()
+    df_s = compute_stock_summary_df(df_o, df_i)
+    conn.update(worksheet="stock_summary", data=df_s)
+  except Exception:
+    pass
+
+
 def save_outward_entry(record):
   df = get_outward_df()
   next_id = int(df["id"].max()) + 1 if not df.empty and str(df["id"].max()).isdigit() else 1
   record["id"] = next_id
   new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
   conn.update(worksheet="outward", data=new_df)
+  sync_sheet_stock_summary()
 
 
 def save_inward_entry(record):
@@ -136,6 +213,7 @@ def save_inward_entry(record):
   record["id"] = next_id
   new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
   conn.update(worksheet="inward", data=new_df)
+  sync_sheet_stock_summary()
 
 
 # ---------------------------------------------------------
@@ -276,7 +354,8 @@ with st.sidebar:
   st.header("☁️ Cloud Storage")
   st.success("Connected to Google Drive Database.")
 
-  if st.button("🔄 Refresh Data Cache", use_container_width=True):
+  if st.button("🔄 Sync & Refresh Sheets", use_container_width=True):
+    sync_sheet_stock_summary()
     st.cache_data.clear()
     st.rerun()
 
@@ -290,9 +369,10 @@ tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
     "4. Custom Reports",
 ])
 
-# Read data from Google Drive
+# Read live data from Google Drive
 df_raw_out = get_outward_df()
 df_raw_in = get_inward_df()
+df_sum = compute_stock_summary_df(df_raw_out, df_raw_in)
 
 # =========================================================
 # TAB 1: OUTWARD REGISTER
@@ -504,33 +584,15 @@ with tab_outward:
 with tab_inward:
   st.subheader("Record Inward Retrieval")
 
-  # Calculate Active Stocks
   active_records = []
-  if not df_raw_out.empty:
-    out_df = df_raw_out.copy()
-    in_df = df_raw_in.copy()
-    out_df["qty"] = pd.to_numeric(out_df["qty"], errors="coerce").fillna(0)
-    out_df["unit_size"] = pd.to_numeric(out_df["unit_size"], errors="coerce").fillna(0)
-    
-    if not in_df.empty:
-      in_df["qty"] = pd.to_numeric(in_df["qty"], errors="coerce").fillna(0)
-      in_grouped = in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
-      in_grouped.rename(columns={"qty": "inward_qty"}, inplace=True)
-      merged = pd.merge(out_df, in_grouped, on=["receipt_no", "item_name"], how="left")
-    else:
-      merged = out_df.copy()
-      merged["inward_qty"] = 0
-
-    merged["inward_qty"] = merged["inward_qty"].fillna(0)
-    merged["bal_units"] = merged["qty"] - merged["inward_qty"]
-    active_df = merged[merged["bal_units"] > 0]
-
+  if not df_sum.empty:
+    active_df = df_sum[df_sum["Bal. Units"] > 0]
     for _, row in active_df.iterrows():
       active_records.append((
-          str(row["receipt_no"]),
-          str(row["item_name"]),
-          str(row["cold_storage"]),
-          int(row["bal_units"]),
+          str(row["Lot No."]),
+          str(row["Item Name"]),
+          str(row["Cold Storage"]),
+          int(row["Bal. Units"]),
       ))
 
   all_active_items = sorted(list(set(r[1] for r in active_records)))
@@ -697,67 +759,6 @@ with tab_inward:
 # =========================================================
 with tab_summary:
   st.subheader("Live Cold Storage Stock Summary")
-
-  if not df_raw_out.empty:
-    out_df = df_raw_out.copy()
-    in_df = df_raw_in.copy()
-    out_df["qty"] = pd.to_numeric(out_df["qty"], errors="coerce").fillna(0)
-    out_df["unit_size"] = pd.to_numeric(out_df["unit_size"], errors="coerce").fillna(0)
-    out_df["total_qty"] = pd.to_numeric(out_df["total_qty"], errors="coerce").fillna(0)
-
-    if not in_df.empty:
-      in_df["qty"] = pd.to_numeric(in_df["qty"], errors="coerce").fillna(0)
-      in_grouped = in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
-      in_grouped.rename(columns={"qty": "Inward Units"}, inplace=True)
-      df_sum = pd.merge(out_df, in_grouped, on=["receipt_no", "item_name"], how="left")
-    else:
-      df_sum = out_df.copy()
-      df_sum["Inward Units"] = 0
-
-    df_sum["Inward Units"] = df_sum["Inward Units"].fillna(0)
-    df_sum["Bal. Units"] = df_sum["qty"] - df_sum["Inward Units"]
-    df_sum["Bal. Total Qty (KG)"] = df_sum["Bal. Units"] * df_sum["unit_size"]
-    
-    df_sum["Status"] = df_sum.apply(
-        lambda r: "CLEARED" if r["Bal. Units"] <= 0 else ("PARTIAL" if r["Inward Units"] > 0 else "UNTOUCHED"),
-        axis=1,
-    )
-
-    df_sum = df_sum.rename(
-        columns={
-            "receipt_no": "Lot No.",
-            "cold_storage": "Cold Storage",
-            "item_name": "Item Name",
-            "unit_size": "Unit Qty (KG)",
-            "qty": "Outward Units",
-        }
-    )[
-        [
-            "Lot No.",
-            "Cold Storage",
-            "Item Name",
-            "Unit Qty (KG)",
-            "Outward Units",
-            "Inward Units",
-            "Bal. Units",
-            "Bal. Total Qty (KG)",
-            "Status",
-        ]
-    ]
-  else:
-    df_sum = pd.DataFrame(
-        columns=[
-            "Lot No.",
-            "Cold Storage",
-            "Item Name",
-            "Unit Qty (KG)",
-            "Outward Units",
-            "Inward Units",
-            "Bal. Units",
-            "Bal. Total Qty (KG)",
-            "Status",
-        ]
-    )
 
   m1, m2, m3, m4 = st.columns(4)
   total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
