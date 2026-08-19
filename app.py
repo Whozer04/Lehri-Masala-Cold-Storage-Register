@@ -68,7 +68,6 @@ THEMES = {
 
 DEFAULT_THEME = "Cupertino Blue (Apple Classic)"
 
-# Safe session state initialization
 if "app_theme" not in st.session_state or st.session_state.app_theme not in THEMES:
     st.session_state.app_theme = DEFAULT_THEME
 
@@ -76,9 +75,6 @@ active_palette = THEMES.get(st.session_state.app_theme, THEMES[DEFAULT_THEME])
 
 st.markdown(f"""
     <style>
-    /* ---------------------------------------------------------
-       APPLE DESIGN SYSTEM (iOS / macOS / visionOS)
-       --------------------------------------------------------- */
     @import url('https://fonts.cdnfonts.com/css/sf-pro-display');
 
     html, body, [class*="css"], .stApp {{
@@ -87,7 +83,6 @@ st.markdown(f"""
         -webkit-font-smoothing: antialiased;
     }}
 
-    /* Mesh Atmosphere */
     .stApp {{
         background-color: var(--background-color);
         background-image: 
@@ -97,7 +92,6 @@ st.markdown(f"""
         background-attachment: fixed;
     }}
     
-    /* Top Header Clearance */
     header[data-testid="stHeader"] {{
         background: transparent !important;
         height: 2.5rem !important;
@@ -109,7 +103,6 @@ st.markdown(f"""
         max-width: 1240px;
     }}
     
-    /* Apple Header Typography */
     .main-header {{
         font-size: 2.1rem;
         font-weight: 700;
@@ -128,7 +121,6 @@ st.markdown(f"""
         letter-spacing: -0.01em;
     }}
     
-    /* Apple Frosted Squircle Containers */
     div[data-testid="stVerticalBlockBorderWrapper"] {{
         background: var(--secondary-background-color) !important;
         border: 1px solid rgba(120, 120, 128, 0.18) !important;
@@ -139,7 +131,6 @@ st.markdown(f"""
         padding: 6px !important;
     }}
 
-    /* Apple Glass KPI Cards */
     .kpi-card {{
         background: var(--secondary-background-color);
         border: 1px solid rgba(120, 120, 128, 0.16);
@@ -178,7 +169,6 @@ st.markdown(f"""
         letter-spacing: -0.01em;
     }}
 
-    /* Apple Glass Live Calc Box */
     .live-calc-box {{
         background: {active_palette['gradient1']};
         border: 1px solid {active_palette['accent_border']};
@@ -204,7 +194,6 @@ st.markdown(f"""
         letter-spacing: -0.025em;
     }}
     
-    /* Apple Nested Item Cards */
     .item-subcard {{
         background: var(--background-color);
         border: 1px solid rgba(120, 120, 128, 0.14);
@@ -227,7 +216,6 @@ st.markdown(f"""
         margin-top: 3px;
     }}
 
-    /* Apple Lot Directory Cards */
     .lot-subcard {{
         background: var(--background-color);
         border: 1px solid rgba(120, 120, 128, 0.14);
@@ -250,7 +238,29 @@ st.markdown(f"""
         margin-top: 3px;
     }}
 
-    /* Apple macOS Segmented Pill Navigation */
+    /* Minimal Finder Location Row */
+    .finder-loc-card {{
+        background: var(--background-color);
+        border: 1px solid rgba(120, 120, 128, 0.16);
+        border-radius: 12px;
+        padding: 10px 16px;
+        margin-top: 6px;
+        margin-bottom: 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }}
+    .finder-loc-name {{
+        font-weight: 600;
+        font-size: 14.5px;
+        color: var(--text-color);
+    }}
+    .finder-loc-val {{
+        font-weight: 700;
+        font-size: 15px;
+        color: {active_palette['accent']};
+    }}
+
     div[data-testid="stRadio"] > div[role="radiogroup"] {{
         background-color: var(--secondary-background-color);
         padding: 5px;
@@ -280,7 +290,6 @@ st.markdown(f"""
         font-weight: 600;
     }}
 
-    /* Cupertino Rounded Buttons */
     .stButton > button {{
         border-radius: 12px !important;
         font-weight: 600 !important;
@@ -454,7 +463,7 @@ def update_inward_entry(entry_id, updated_record):
         for k, v in updated_record.items():
             df.loc[idx[0], k] = v
         conn.update(worksheet="inward", data=df)
-        get_inward_df.clear()
+        get_outward_df.clear()
         df_o = get_outward_df()
         df_s = compute_stock_summary_df(df_o, df)
         sync_sheet_stock_summary(df_s)
@@ -647,7 +656,7 @@ if selected_tab == "📊 Operational Dashboard":
         total_bal_u = active_df["Bal. Units"].sum()
         active_lots_count = len(active_df)
 
-        # 1. INTERACTIVE TOP KPI STAT CARDS
+        # 1. TOP METRIC CARDS
         kpi1, kpi2, kpi3 = st.columns(3)
         with kpi1:
             st.markdown(f"""
@@ -761,7 +770,7 @@ if selected_tab == "📊 Operational Dashboard":
 
         st.divider()
 
-        # 4. QUICK ITEM STOCK FINDER
+        # 4. QUICK ITEM STOCK FINDER (CLEAN TOTALS PER LOCATION)
         st.markdown("##### ⚡ Quick Item Stock Finder")
         with st.container(border=True):
             avail_items = sorted(list(active_df["Item Name"].unique()))
@@ -775,12 +784,26 @@ if selected_tab == "📊 Operational Dashboard":
                 item_rows = active_df[active_df["Item Name"] == selected_finder_item]
                 tot_item_u = item_rows["Bal. Units"].sum()
                 tot_item_kg = item_rows["Bal. Total Qty (KG)"].sum()
-                storages_held = ", ".join(item_rows["Cold Storage"].unique())
 
                 st.metric(f"Total {selected_finder_item}", f"{tot_item_kg:,.2f} KG", f"{int(tot_item_u)} Units Available")
-                st.caption(f"📍 **Located in:** {storages_held}")
+                
+                st.write("")
+                # Clean location summary
+                loc_grp = item_rows.groupby("Cold Storage").agg({
+                    "Bal. Units": "sum",
+                    "Bal. Total Qty (KG)": "sum"
+                }).reset_index()
+
+                for _, loc_r in loc_grp.iterrows():
+                    st.markdown(f"""
+                    <div class="finder-loc-card">
+                        <div class="finder-loc-name">🏬 {loc_r['Cold Storage']}</div>
+                        <div class="finder-loc-val">{loc_r['Bal. Total Qty (KG)']:,.2f} KG <span style="font-size:12.5px; opacity:0.8; font-weight:500;">({int(loc_r['Bal. Units']):,} Units)</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
             else:
-                st.caption("Select any item above to see immediate totals and cold storage locations.")
+                st.caption("Select any item above to see immediate totals and cold storage breakdown.")
 
         st.divider()
 
@@ -1103,7 +1126,7 @@ elif selected_tab == "2. Inward Register":
             if sel_in_item:
                 matching = [r for r in active_records if r[1] == sel_in_item]
                 lot_candidates = [f"{m[0]} ({m[2]} - {m[3]} Bal Units)" for m in matching]
-                sel_item_final = sel_in_item
+                sel_item_final = sel_item_final = sel_in_item
 
                 r2c1, r2c2 = st.columns(2)
                 sel_lot_display = r2c1.selectbox("Select Available Lot No. *", options=lot_candidates, key="in_lot_sel_by_item")
