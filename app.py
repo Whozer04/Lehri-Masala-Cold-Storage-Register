@@ -198,7 +198,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# SESSION STATE NAVIGATION INIT (DIRECT KEY BINDING)
+# SESSION STATE NAVIGATION & CALLBACKS
 # ---------------------------------------------------------
 nav_options = [
     "📊 Operational Dashboard",
@@ -216,6 +216,14 @@ if "prefill_item" not in st.session_state:
   st.session_state.prefill_item = ""
 if "prefill_lot" not in st.session_state:
   st.session_state.prefill_lot = ""
+
+
+def navigate_to(page_name, cs="", item="", lot=""):
+  st.session_state.nav_selection = page_name
+  st.session_state.prefill_cs = cs
+  st.session_state.prefill_item = item
+  st.session_state.prefill_lot = lot
+
 
 # ---------------------------------------------------------
 # GOOGLE DRIVE / SHEETS ENGINE (WITH SMART CACHING)
@@ -641,7 +649,7 @@ if selected_tab == "📊 Operational Dashboard":
     total_bal_u = active_df["Bal. Units"].sum()
     active_lots_count = len(active_df)
 
-    # 1. INTERACTIVE TOP KPI STAT CARDS (CLICKABLE REDIRECTION)
+    # 1. INTERACTIVE TOP KPI STAT CARDS (CALLBACK BASED)
     kpi1, kpi2, kpi3 = st.columns(3)
     with kpi1:
       st.markdown(
@@ -654,14 +662,13 @@ if selected_tab == "📊 Operational Dashboard":
           """,
           unsafe_allow_html=True,
       )
-      if st.button(
+      st.button(
           "👉 View Summary by Weight",
           key="btn_kpi_weight",
+          on_click=navigate_to,
+          args=("3. Stock Summary",),
           use_container_width=True,
-          help="Click to view detailed Stock Summary",
-      ):
-        st.session_state.nav_selection = "3. Stock Summary"
-        st.rerun()
+      )
 
     with kpi2:
       st.markdown(
@@ -674,14 +681,13 @@ if selected_tab == "📊 Operational Dashboard":
           """,
           unsafe_allow_html=True,
       )
-      if st.button(
+      st.button(
           "👉 View Summary by Units",
           key="btn_kpi_units",
+          on_click=navigate_to,
+          args=("3. Stock Summary",),
           use_container_width=True,
-          help="Click to view detailed Stock Summary",
-      ):
-        st.session_state.nav_selection = "3. Stock Summary"
-        st.rerun()
+      )
 
     with kpi3:
       st.markdown(
@@ -698,7 +704,7 @@ if selected_tab == "📊 Operational Dashboard":
 
     st.write("")
 
-    # --- EXPANDABLE ACTIVE BATCHES DIRECTORY (WITH DIRECT INWARD SHORTCUT) ---
+    # --- EXPANDABLE ACTIVE BATCHES DIRECTORY (CALLBACK BASED) ---
     with st.expander(
         f"🏷️ **Active Batches Directory ({active_lots_count} Lots)** — Click to"
         " View & Retrieve"
@@ -728,17 +734,14 @@ if selected_tab == "📊 Operational Dashboard":
           )
         with c_lot_btn:
           st.write("")
-          if st.button(
+          st.button(
               "📥 Inward",
               key=f"btn_in_lot_{lot_no}",
+              on_click=navigate_to,
+              args=("2. Inward Register", cs_name, item_name, lot_no),
               use_container_width=True,
               help=f"Retrieve units from Lot {lot_no}",
-          ):
-            st.session_state.prefill_lot = lot_no
-            st.session_state.prefill_item = item_name
-            st.session_state.prefill_cs = cs_name
-            st.session_state.nav_selection = "2. Inward Register"
-            st.rerun()
+          )
 
     st.write("")
 
@@ -845,16 +848,14 @@ if selected_tab == "📊 Operational Dashboard":
 
             with c_btn1:
               st.write("")
-              if st.button(
+              st.button(
                   "➕ Outward",
                   key=f"btn_out_{fac_name}_{item_name}",
+                  on_click=navigate_to,
+                  args=("1. Outward Register", fac_name, item_name, ""),
                   use_container_width=True,
                   help=f"Register new Outward for {item_name} at {fac_name}",
-              ):
-                st.session_state.prefill_cs = fac_name
-                st.session_state.prefill_item = item_name
-                st.session_state.nav_selection = "1. Outward Register"
-                st.rerun()
+              )
 
     with col_find:
       st.markdown("##### ⚡ Quick Item Stock Finder")
