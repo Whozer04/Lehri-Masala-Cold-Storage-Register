@@ -71,23 +71,23 @@ st.markdown(
         color: #0F172A;
         margin-top: 2px;
     }
-    .facility-card {
-        background-color: #F8FAFC;
+    .item-subcard {
+        background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
-        border-left: 5px solid #2563EB;
-        border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 10px;
+        border-left: 4px solid #10B981;
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
     }
-    .facility-title {
+    .item-subcard-title {
         font-weight: 700;
-        font-size: 16px;
+        font-size: 14.5px;
         color: #0F172A;
-        margin-bottom: 4px;
     }
-    .facility-sub {
-        font-size: 13px;
-        color: #64748B;
+    .item-subcard-body {
+        font-size: 12.5px;
+        color: #475569;
+        margin-top: 3px;
     }
     </style>
 """,
@@ -553,33 +553,41 @@ with tab_dash:
 
     st.divider()
 
-    col_fac, col_find = st.columns([1.2, 0.8])
+    # --- INTERACTIVE FACILITY BREAKDOWN & QUICK FINDER ---
+    col_fac, col_find = st.columns([1.3, 0.7])
+
     with col_fac:
-      st.markdown("##### 🏢 Cold Storage Facility Breakdown")
-      fac_summary = (
-          active_df.groupby("Cold Storage")
-          .agg({
-              "Lot No.": "count",
+      st.markdown("##### 🏢 Cold Storage Facilities (Click to Expand Items)")
+      fac_names = sorted(list(active_df["Cold Storage"].unique()))
+
+      for fac_name in fac_names:
+        fac_items_df = active_df[active_df["Cold Storage"] == fac_name]
+        tot_fac_u = int(fac_items_df["Bal. Units"].sum())
+        tot_fac_kg = fac_items_df["Bal. Total Qty (KG)"].sum()
+        tot_fac_lots = len(fac_items_df)
+
+        # Interactive Expandable Facility Card
+        with st.expander(f"🏬 **{fac_name}** — {tot_fac_u:,} Units | {tot_fac_kg:,.2f} KG ({tot_fac_lots} Lots)"):
+          item_grp = fac_items_df.groupby("Item Name").agg({
               "Bal. Units": "sum",
               "Bal. Total Qty (KG)": "sum",
-          })
-          .reset_index()
-      )
+              "Lot No.": lambda x: ", ".join(x.astype(str).unique()),
+          }).reset_index()
 
-      for _, f_row in fac_summary.iterrows():
-        st.markdown(
-            f"""
-            <div class="facility-card">
-                <div class="facility-title">{f_row['Cold Storage']}</div>
-                <div class="facility-sub">
-                    <b>{int(f_row['Bal. Units']):,} Units</b> &nbsp;|&nbsp; 
-                    <b>{f_row['Bal. Total Qty (KG)']:,.2f} KG</b> &nbsp;|&nbsp; 
-                    {f_row['Lot No.']} Active Batches
+          for _, it_row in item_grp.iterrows():
+            st.markdown(
+                f"""
+                <div class="item-subcard">
+                    <div class="item-subcard-title">🌶️ {it_row['Item Name']}</div>
+                    <div class="item-subcard-body">
+                        <b>{int(it_row['Bal. Units']):,} Units</b> &nbsp;|&nbsp; 
+                        <b>{it_row['Bal. Total Qty (KG)']:,.2f} KG</b> &nbsp;|&nbsp; 
+                        <span>Active Lots: {it_row['Lot No.']}</span>
+                    </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 
     with col_find:
       st.markdown("##### ⚡ Quick Item Stock Finder")
@@ -603,6 +611,7 @@ with tab_dash:
 
     st.divider()
 
+    # 4. DETAILED AGING STATUS TABLE
     st.markdown("##### ⏳ Detailed Aging Status (Oldest to Newest)")
 
     def get_aging_badge(days):
@@ -869,7 +878,6 @@ with tab_outward:
 
       with btn_col2:
         if st.button("🗑️ Delete Outward Entry", use_container_width=True):
-          # Safety check: prevent deleting lot if inward retrievals already exist
           in_use = not df_raw_in[df_raw_in["receipt_no"].astype(str) == str(target_out["receipt_no"])].empty
           if in_use:
             st.error("Cannot delete! Inward retrievals already exist for this lot. Delete inward entries first.")
