@@ -2,6 +2,7 @@ import datetime
 import io
 import os
 import re
+import sqlite3
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -76,7 +77,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# GOOGLE DRIVE / SHEETS DATABASE ENGINE
+# GOOGLE DRIVE / SHEETS ENGINE (WITH SMART CACHING)
 # ---------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -94,6 +95,7 @@ OUTWARD_COLS = [
 INWARD_COLS = ["id", "entry_date", "receipt_no", "item_name", "qty"]
 
 
+@st.cache_data(ttl=120)
 def get_outward_df():
   try:
     df = conn.read(worksheet="outward", ttl=0)
@@ -108,6 +110,7 @@ def get_outward_df():
     return pd.DataFrame(columns=OUTWARD_COLS)
 
 
+@st.cache_data(ttl=120)
 def get_inward_df():
   try:
     df = conn.read(worksheet="inward", ttl=0)
@@ -123,7 +126,6 @@ def get_inward_df():
 
 
 def compute_stock_summary_df(out_df, in_df):
-  """Computes live aggregated stock summary table."""
   if out_df.empty:
     return pd.DataFrame(
         columns=[
@@ -141,15 +143,23 @@ def compute_stock_summary_df(out_df, in_df):
 
   out_df = out_df.copy()
   out_df["qty"] = pd.to_numeric(out_df["qty"], errors="coerce").fillna(0)
-  out_df["unit_size"] = pd.to_numeric(out_df["unit_size"], errors="coerce").fillna(0)
-  out_df["total_qty"] = pd.to_numeric(out_df["total_qty"], errors="coerce").fillna(0)
+  out_df["unit_size"] = pd.to_numeric(
+      out_df["unit_size"], errors="coerce"
+  ).fillna(0)
+  out_df["total_qty"] = pd.to_numeric(
+      out_df["total_qty"], errors="coerce"
+  ).fillna(0)
 
   if not in_df.empty:
     in_df = in_df.copy()
     in_df["qty"] = pd.to_numeric(in_df["qty"], errors="coerce").fillna(0)
-    in_grouped = in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
+    in_grouped = (
+        in_df.groupby(["receipt_no", "item_name"])["qty"].sum().reset_index()
+    )
     in_grouped.rename(columns={"qty": "Inward Units"}, inplace=True)
-    df_sum = pd.merge(out_df, in_grouped, on=["receipt_no", "item_name"], how="left")
+    df_sum = pd.merge(
+        out_df, in_grouped, on=["receipt_no", "item_name"], how="left"
+    )
   else:
     df_sum = out_df.copy()
     df_sum["Inward Units"] = 0
@@ -159,11 +169,15 @@ def compute_stock_summary_df(out_df, in_df):
   df_sum["Bal. Total Qty (KG)"] = df_sum["Bal. Units"] * df_sum["unit_size"]
 
   df_sum["Status"] = df_sum.apply(
-      lambda r: "CLEARED" if r["Bal. Units"] <= 0 else ("PARTIAL" if r["Inward Units"] > 0 else "UNTOUCHED"),
+      lambda r: (
+          "CLEARED"
+          if r["Bal. Units"] <= 0
+          else ("PARTIAL" if r["Inward Units"] > 0 else "UNTOUCHED")
+      ),
       axis=1,
   )
 
-  df_sum = df_sum.rename(
+  return df_sum.rename(
       columns={
           "receipt_no": "Lot No.",
           "cold_storage": "Cold Storage",
@@ -184,15 +198,10 @@ def compute_stock_summary_df(out_df, in_df):
           "Status",
       ]
   ]
-  return df_sum
 
 
-def sync_sheet_stock_summary():
-  """Updates stock_summary worksheet in Google Drive."""
+def sync_sheet_stock_summary(df_s):
   try:
-    df_o = get_outward_df()
-    df_i = get_inward_df()
-    df_s = compute_stock_summary_df(df_o, df_i)
     conn.update(worksheet="stock_summary", data=df_s)
   except Exception:
     pass
@@ -200,20 +209,63 @@ def sync_sheet_stock_summary():
 
 def save_outward_entry(record):
   df = get_outward_df()
-  next_id = int(df["id"].max()) + 1 if not df.empty and str(df["id"].max()).isdigit() else 1
+  next_id = (
+      int(df["id"].max()) + 1
+      if not df.empty and str(df["id"].max()).isdigit()
+      else 1
+  )
   record["id"] = next_id
   new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
   conn.update(worksheet="outward", data=new_df)
-  sync_sheet_stock_summary()
+
+  # Invalidate read cache immediately
+  get_outward_df.clear()
+
+  # Recalculate and update summary
+  df_i = get_inward_df()
+  df_s = compute_stock_summary_df(new_df, df_i)
+  sync_sheet_stock_summary(df_s)
 
 
 def save_inward_entry(record):
   df = get_inward_df()
-  next_id = int(df["id"].max()) + 1 if not df.empty and str(df["id"].max()).isdigit() else 1
+  next_id = (
+      int(df["id"].max()) + 1
+      if not df.empty and str(df["id"].max()).isdigit()
+      else 1
+  )
   record["id"] = next_id
   new_df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
   conn.update(worksheet="inward", data=new_df)
-  sync_sheet_stock_summary()
+
+  # Invalidate read cache immediately
+  get_inward_df.clear()
+
+  # Recalculate and update summary
+  df_o = get_outward_df()
+  df_s = compute_stock_summary_df(df_o, new_df)
+  sync_sheet_stock_summary(df_s)
+
+
+# ---------------------------------------------------------
+# AUTO-BACKUP ENGINE (SQLite .db export)
+# ---------------------------------------------------------
+def generate_sqlite_backup(df_o, df_i, df_s):
+  """Builds a local SQLite .db binary in memory for instant download."""
+  db_buffer = io.BytesIO()
+  temp_conn = sqlite3.connect(":memory:")
+
+  df_o.to_sql("outward", temp_conn, if_exists="replace", index=False)
+  df_i.to_sql("inward", temp_conn, if_exists="replace", index=False)
+  df_s.to_sql("stock_summary", temp_conn, if_exists="replace", index=False)
+
+  # Dump memory database into bytes
+  for line in temp_conn.iterdump():
+    db_buffer.write(f"{line}\n".encode("utf-8"))
+
+  temp_conn.close()
+  db_buffer.seek(0)
+  return db_buffer
 
 
 # ---------------------------------------------------------
@@ -347,15 +399,38 @@ with col_title:
       unsafe_allow_html=True,
   )
 
+# Fetch data
+df_raw_out = get_outward_df()
+df_raw_in = get_inward_df()
+df_sum = compute_stock_summary_df(df_raw_out, df_raw_in)
+
 # ---------------------------------------------------------
-# SIDEBAR / STATUS
+# SIDEBAR / BACKUP & CONTROL
 # ---------------------------------------------------------
 with st.sidebar:
   st.header("☁️ Cloud Storage")
-  st.success("Connected to Google Drive Database.")
+  st.success("Google Drive Sync: Active")
 
-  if st.button("🔄 Sync & Refresh Sheets", use_container_width=True):
-    sync_sheet_stock_summary()
+  st.divider()
+  st.header("💾 Automatic Database Backup")
+
+  # Generate SQLite backup buffer
+  db_backup_bytes = generate_sqlite_backup(df_raw_out, df_raw_in, df_sum)
+  backup_name = (
+      f"cold_storage_backup_{datetime.date.today().strftime('%Y%m%d')}.sql"
+  )
+
+  st.download_button(
+      label="📥 Download Full Database (.sql / .db)",
+      data=db_backup_bytes,
+      file_name=backup_name,
+      mime="application/sql",
+      use_container_width=True,
+  )
+
+  if st.button("🔄 Force Refresh All Data", use_container_width=True):
+    get_outward_df.clear()
+    get_inward_df.clear()
     st.cache_data.clear()
     st.rerun()
 
@@ -369,11 +444,6 @@ tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
     "4. Custom Reports",
 ])
 
-# Read live data from Google Drive
-df_raw_out = get_outward_df()
-df_raw_in = get_inward_df()
-df_sum = compute_stock_summary_df(df_raw_out, df_raw_in)
-
 # =========================================================
 # TAB 1: OUTWARD REGISTER
 # =========================================================
@@ -381,10 +451,18 @@ with tab_outward:
   st.subheader("Record Outward Dispatch")
 
   cs_opts = sorted(
-      [str(x) for x in df_raw_out["cold_storage"].dropna().unique() if str(x).strip()]
+      [
+          str(x)
+          for x in df_raw_out["cold_storage"].dropna().unique()
+          if str(x).strip()
+      ]
   )
   item_opts = sorted(
-      [str(x) for x in df_raw_out["item_name"].dropna().unique() if str(x).strip()]
+      [
+          str(x)
+          for x in df_raw_out["item_name"].dropna().unique()
+          if str(x).strip()
+      ]
   )
 
   r1c1, r1c2, r1c3 = st.columns(3)
@@ -547,11 +625,15 @@ with tab_outward:
     )
     df_out_display = df_out_display.iloc[::-1]
 
-  search_out = st.text_input("🔍 Search Outward Records (Type to Filter)", key="search_out")
+  search_out = st.text_input(
+      "🔍 Search Outward Records (Type to Filter)", key="search_out"
+  )
   if search_out and not df_out_display.empty:
     df_out_display = df_out_display[
         df_out_display.apply(
-            lambda row: row.astype(str).str.contains(search_out, case=False).any(),
+            lambda row: (
+                row.astype(str).str.contains(search_out, case=False).any()
+            ),
             axis=1,
         )
     ]
@@ -647,8 +729,14 @@ with tab_inward:
       )
     else:
       r2c1, r2c2 = st.columns(2)
-      r2c1.selectbox("Allotted Item Name *", options=["(Select Lot No. first)"], disabled=True)
-      in_qty = r2c2.number_input("Inward Units Received *", min_value=1, value=1, disabled=True)
+      r2c1.selectbox(
+          "Allotted Item Name *",
+          options=["(Select Lot No. first)"],
+          disabled=True,
+      )
+      in_qty = r2c2.number_input(
+          "Inward Units Received *", min_value=1, value=1, disabled=True
+      )
 
   else:
     sel_in_item = r1c2.selectbox(
@@ -658,7 +746,9 @@ with tab_inward:
     )
     if sel_in_item:
       matching = [r for r in active_records if r[1] == sel_in_item]
-      lot_candidates = [f"{m[0]} ({m[2]} - {m[3]} Bal Units)" for m in matching]
+      lot_candidates = [
+          f"{m[0]} ({m[2]} - {m[3]} Bal Units)" for m in matching
+      ]
       sel_item_final = sel_in_item
 
       r2c1, r2c2 = st.columns(2)
@@ -682,8 +772,14 @@ with tab_inward:
       )
     else:
       r2c1, r2c2 = st.columns(2)
-      r2c1.selectbox("Select Available Lot No. *", options=["(Select Item first)"], disabled=True)
-      in_qty = r2c2.number_input("Inward Units Received *", min_value=1, value=1, disabled=True)
+      r2c1.selectbox(
+          "Select Available Lot No. *",
+          options=["(Select Item first)"],
+          disabled=True,
+      )
+      in_qty = r2c2.number_input(
+          "Inward Units Received *", min_value=1, value=1, disabled=True
+      )
 
   if sel_lot_final and sel_item_final:
     st.info(
@@ -691,7 +787,9 @@ with tab_inward:
         f" **{sel_item_final}** remaining in storage."
     )
 
-  if st.button("Save Inward Retrieval", type="primary", use_container_width=True):
+  if st.button(
+      "Save Inward Retrieval", type="primary", use_container_width=True
+  ):
     if not (sel_lot_final and sel_item_final and in_qty > 0):
       st.error("Please select a valid Lot No. and Item Name.")
     else:
@@ -704,7 +802,8 @@ with tab_inward:
       with st.spinner("Saving to Google Drive..."):
         save_inward_entry(new_inward_record)
       st.success(
-          f"Retrieved {in_qty} units of '{sel_item_final}' from Lot '{sel_lot_final}'."
+          f"Retrieved {in_qty} units of '{sel_item_final}' from Lot"
+          f" '{sel_lot_final}'."
       )
       st.rerun()
 
@@ -723,11 +822,15 @@ with tab_inward:
     )
     df_in_display = df_in_display.iloc[::-1]
 
-  search_in = st.text_input("🔍 Search Inward Records (Type to Filter)", key="search_in")
+  search_in = st.text_input(
+      "🔍 Search Inward Records (Type to Filter)", key="search_in"
+  )
   if search_in and not df_in_display.empty:
     df_in_display = df_in_display[
         df_in_display.apply(
-            lambda row: row.astype(str).str.contains(search_in, case=False).any(),
+            lambda row: (
+                row.astype(str).str.contains(search_in, case=False).any()
+            ),
             axis=1,
         )
     ]
@@ -774,8 +877,12 @@ with tab_summary:
   st.divider()
 
   c_sum_ctrl1, c_sum_ctrl2 = st.columns([1, 2])
-  hide_cleared = c_sum_ctrl1.checkbox("Hide Fully Cleared Lots", value=True, key="sum_hide_c")
-  search_sum = c_sum_ctrl2.text_input("🔍 Search Stock Summary (Type to Filter)", key="search_sum")
+  hide_cleared = c_sum_ctrl1.checkbox(
+      "Hide Fully Cleared Lots", value=True, key="sum_hide_c"
+  )
+  search_sum = c_sum_ctrl2.text_input(
+      "🔍 Search Stock Summary (Type to Filter)", key="search_sum"
+  )
 
   df_sum_disp = df_sum.copy()
   if hide_cleared and not df_sum_disp.empty:
@@ -783,7 +890,9 @@ with tab_summary:
   if search_sum and not df_sum_disp.empty:
     df_sum_disp = df_sum_disp[
         df_sum_disp.apply(
-            lambda row: row.astype(str).str.contains(search_sum, case=False).any(),
+            lambda row: (
+                row.astype(str).str.contains(search_sum, case=False).any()
+            ),
             axis=1,
         )
     ]
@@ -816,9 +925,22 @@ with tab_summary:
 with tab_reports:
   st.subheader("Filter & Custom Report Engine")
 
-  all_lots = ["ALL"] + sorted(list(set(df_raw_out["receipt_no"].dropna().astype(str)))) if not df_raw_out.empty else ["ALL"]
-  all_cs = ["ALL"] + sorted(list(set(df_raw_out["cold_storage"].dropna().astype(str)))) if not df_raw_out.empty else ["ALL"]
-  all_items = ["ALL"] + sorted(list(set(df_raw_out["item_name"].dropna().astype(str)))) if not df_raw_out.empty else ["ALL"]
+  all_lots = (
+      ["ALL"] + sorted(list(set(df_raw_out["receipt_no"].dropna().astype(str))))
+      if not df_raw_out.empty
+      else ["ALL"]
+  )
+  all_cs = (
+      ["ALL"]
+      + sorted(list(set(df_raw_out["cold_storage"].dropna().astype(str))))
+      if not df_raw_out.empty
+      else ["ALL"]
+  )
+  all_items = (
+      ["ALL"] + sorted(list(set(df_raw_out["item_name"].dropna().astype(str))))
+      if not df_raw_out.empty
+      else ["ALL"]
+  )
 
   rf1, rf2, rf3, rf4 = st.columns(4)
   rep_type = rf1.selectbox(
@@ -832,7 +954,9 @@ with tab_reports:
       key="rep_type_sel",
   )
   rep_group = rf2.selectbox(
-      "Group By", ["None", "Item Name", "Cold Storage", "Date"], key="rep_grp_sel"
+      "Group By",
+      ["None", "Item Name", "Cold Storage", "Date"],
+      key="rep_grp_sel",
   )
   rep_from_dt = rf3.date_input(
       "From Date",
