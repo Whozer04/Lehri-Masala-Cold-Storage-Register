@@ -151,6 +151,27 @@ st.markdown(
         margin-top: 2px;
     }
 
+    /* Active Lot Cards */
+    .lot-subcard {
+        background-color: var(--background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-left: 4px solid #3B82F6;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+    }
+    .lot-subcard-title {
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--text-color);
+    }
+    .lot-subcard-body {
+        font-size: 13px;
+        color: var(--text-color);
+        opacity: 0.85;
+        margin-top: 2px;
+    }
+
     /* Banner Alert Cards */
     .alert-banner {
         border-radius: 10px;
@@ -193,6 +214,8 @@ if "prefill_cs" not in st.session_state:
   st.session_state.prefill_cs = ""
 if "prefill_item" not in st.session_state:
   st.session_state.prefill_item = ""
+if "prefill_lot" not in st.session_state:
+  st.session_state.prefill_lot = ""
 
 # ---------------------------------------------------------
 # GOOGLE DRIVE / SHEETS ENGINE (WITH SMART CACHING)
@@ -649,7 +672,7 @@ if selected_tab == "📊 Operational Dashboard":
           <div class="kpi-card">
               <div class="kpi-title">🏷️ Active Batches</div>
               <div class="kpi-value">{active_lots_count} <span style="font-size:16px; font-weight:600;">Lots</span></div>
-              <div class="kpi-sub">Un-cleared batches</div>
+              <div class="kpi-sub">Click below to retrieve</div>
           </div>
           """,
           unsafe_allow_html=True,
@@ -665,6 +688,50 @@ if selected_tab == "📊 Operational Dashboard":
           """,
           unsafe_allow_html=True,
       )
+
+    st.write("")
+
+    # --- EXPANDABLE ACTIVE BATCHES DIRECTORY (WITH DIRECT INWARD SHORTCUT) ---
+    with st.expander(
+        f"🏷️ **Active Batches Directory ({active_lots_count} Lots)** — Click to"
+        " View & Retrieve"
+    ):
+      for _, lot_row in active_df.iterrows():
+        lot_no = str(lot_row["Lot No."])
+        item_name = str(lot_row["Item Name"])
+        cs_name = str(lot_row["Cold Storage"])
+        bal_u = int(lot_row["Bal. Units"])
+        bal_kg = float(lot_row["Bal. Total Qty (KG)"])
+        days_held = int(lot_row["Days in Storage"])
+
+        c_lot_info, c_lot_btn = st.columns([3.2, 0.8])
+        with c_lot_info:
+          st.markdown(
+              f"""
+              <div class="lot-subcard">
+                  <div class="lot-subcard-title">📦 Lot {lot_no} — {item_name}</div>
+                  <div class="lot-subcard-body">
+                      <b>{bal_u:,} Units</b> ({bal_kg:,.2f} KG) &nbsp;|&nbsp; 
+                      <span>Facility: <b>{cs_name}</b></span> &nbsp;|&nbsp; 
+                      <span>Age: <b>{days_held} days</b> (Since {lot_row['Outward Date']})</span>
+                  </div>
+              </div>
+              """,
+              unsafe_allow_html=True,
+          )
+        with c_lot_btn:
+          st.write("")
+          if st.button(
+              "📥 Inward",
+              key=f"btn_in_lot_{lot_no}",
+              use_container_width=True,
+              help=f"Retrieve units from Lot {lot_no}",
+          ):
+            st.session_state.prefill_lot = lot_no
+            st.session_state.prefill_item = item_name
+            st.session_state.prefill_cs = cs_name
+            st.session_state.nav_selection = "2. Inward Register"
+            st.rerun()
 
     st.write("")
 
@@ -723,7 +790,7 @@ if selected_tab == "📊 Operational Dashboard":
 
     st.divider()
 
-    # 3. INTERACTIVE FACILITY BREAKDOWN WITH ACTION SHORTCUTS
+    # 3. INTERACTIVE FACILITY BREAKDOWN (OUTWARD ONLY) & QUICK FINDER
     col_fac, col_find = st.columns([1.35, 0.65])
 
     with col_fac:
@@ -753,7 +820,7 @@ if selected_tab == "📊 Operational Dashboard":
           for _, it_row in item_grp.iterrows():
             item_name = it_row["Item Name"]
 
-            c_info, c_btn1, c_btn2 = st.columns([2.2, 0.9, 0.9])
+            c_info, c_btn1 = st.columns([3.0, 1.0])
             with c_info:
               st.markdown(
                   f"""
@@ -780,19 +847,6 @@ if selected_tab == "📊 Operational Dashboard":
                 st.session_state.prefill_cs = fac_name
                 st.session_state.prefill_item = item_name
                 st.session_state.nav_selection = "1. Outward Register"
-                st.rerun()
-
-            with c_btn2:
-              st.write("")
-              if st.button(
-                  "📥 Inward",
-                  key=f"btn_in_{fac_name}_{item_name}",
-                  use_container_width=True,
-                  help=f"Retrieve {item_name} from {fac_name}",
-              ):
-                st.session_state.prefill_cs = fac_name
-                st.session_state.prefill_item = item_name
-                st.session_state.nav_selection = "2. Inward Register"
                 st.rerun()
 
     with col_find:
@@ -1010,6 +1064,7 @@ elif selected_tab == "1. Outward Register":
 
           if (unitsInput && !unitsInput.dataset.liveListened) {
               unitsInput.dataset.liveListened = "true";
+              unitsInput.dataset.liveListened = "true";
               unitsInput.addEventListener('input', update);
               unitsInput.addEventListener('keyup', update);
               unitsInput.addEventListener('change', update);
@@ -1074,6 +1129,7 @@ elif selected_tab == "1. Outward Register":
           save_outward_entry(new_record)
         st.session_state.prefill_cs = ""
         st.session_state.prefill_item = ""
+        st.session_state.prefill_lot = ""
         st.success(
             f"Saved: Lot '{out_lot_clean}' ({out_units} units of {final_item})"
         )
@@ -1239,6 +1295,12 @@ elif selected_tab == "1. Outward Register":
 elif selected_tab == "2. Inward Register":
   st.subheader("Record Inward Retrieval")
 
+  if st.session_state.prefill_lot:
+    st.info(
+        f"⚡ Quick-Entry Mode: Pre-selected **Lot {st.session_state.prefill_lot}**"
+        f" ({st.session_state.prefill_item} @ {st.session_state.prefill_cs})."
+    )
+
   active_records = []
   if not df_sum.empty:
     active_df_in = df_sum[df_sum["Bal. Units"] > 0]
@@ -1253,7 +1315,13 @@ elif selected_tab == "2. Inward Register":
   all_active_items = sorted(list(set(r[1] for r in active_records)))
   all_active_lots = sorted(list(set(r[0] for r in active_records)))
 
-  default_mode_idx = 1 if st.session_state.prefill_item else 0
+  # Set default lookup mode to Lot if prefill_lot is set, else Reverse if item set
+  if st.session_state.prefill_lot:
+    default_mode_idx = 0
+  elif st.session_state.prefill_item:
+    default_mode_idx = 1
+  else:
+    default_mode_idx = 0
 
   lookup_mode = st.radio(
       "Lookup Method:",
@@ -1275,9 +1343,15 @@ elif selected_tab == "2. Inward Register":
   max_avail_units = 1
 
   if lookup_mode == "Search by Lot No.":
+    lot_default_idx = (
+        all_active_lots.index(st.session_state.prefill_lot) + 1
+        if st.session_state.prefill_lot in all_active_lots
+        else 0
+    )
     sel_in_lot = r1c2.selectbox(
         "Select Active Lot No. *",
         options=[""] + all_active_lots,
+        index=lot_default_idx,
         key="in_lot_sel",
     )
     if sel_in_lot:
@@ -1385,6 +1459,7 @@ elif selected_tab == "2. Inward Register":
         save_inward_entry(new_inward_record)
       st.session_state.prefill_cs = ""
       st.session_state.prefill_item = ""
+      st.session_state.prefill_lot = ""
       st.success(
           f"Retrieved {in_qty} units of '{sel_item_final}' from Lot"
           f" '{sel_lot_final}'."
