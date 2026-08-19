@@ -27,7 +27,7 @@ except ImportError:
   HAS_REPORTLAB = False
 
 # ---------------------------------------------------------
-# PAGE CONFIG & ADAPTIVE THEME STYLING
+# PAGE CONFIG & MODERN UI STYLING
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Lehri Masala Cold Storage Register",
@@ -39,26 +39,78 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Global Container Padding */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+    
     /* Theme-Adaptive Headers */
     .main-header {
-        font-size: 1.85rem;
+        font-size: 2rem;
         font-weight: 800;
         color: var(--text-color);
-        letter-spacing: -0.5px;
-        margin-bottom: 0.15rem;
+        letter-spacing: -0.6px;
+        margin-bottom: 0.1rem;
     }
     .sub-header {
         font-size: 0.95rem;
         color: var(--text-color);
-        opacity: 0.75;
-        margin-bottom: 1.2rem;
+        opacity: 0.7;
+        margin-bottom: 1.5rem;
     }
     
+    /* Modern Glassmorphic KPI Cards */
+    .kpi-card {
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 12px;
+        padding: 16px 20px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+    }
+    .kpi-title {
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-color);
+        opacity: 0.75;
+        letter-spacing: 0.6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .kpi-value {
+        font-size: 26px;
+        font-weight: 800;
+        color: var(--text-color);
+        margin-top: 4px;
+    }
+    .kpi-sub {
+        font-size: 12.5px;
+        color: #10B981;
+        font-weight: 600;
+        margin-top: 2px;
+    }
+
+    /* Modern Card Wrappers for Forms */
+    .form-wrapper {
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
     /* Live Calculation Box */
     .live-calc-box {
-        background-color: var(--secondary-background-color);
-        border: 1px solid rgba(128, 128, 128, 0.25);
-        border-radius: 8px;
+        background-color: var(--background-color);
+        border: 1.5px dashed rgba(59, 130, 246, 0.5);
+        border-radius: 10px;
         padding: 10px 14px;
         text-align: center;
         margin-top: 4px;
@@ -66,7 +118,7 @@ st.markdown(
     .live-calc-label {
         font-size: 12px;
         color: var(--text-color);
-        opacity: 0.7;
+        opacity: 0.75;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -78,25 +130,46 @@ st.markdown(
         margin-top: 2px;
     }
     
-    /* Item Subcards in Dashboard */
+    /* Interactive Facility & Item Cards */
     .item-subcard {
-        background-color: var(--secondary-background-color);
+        background-color: var(--background-color);
         border: 1px solid rgba(128, 128, 128, 0.2);
         border-left: 4px solid #10B981;
-        border-radius: 6px;
-        padding: 8px 12px;
-        margin-bottom: 6px;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
     }
     .item-subcard-title {
         font-weight: 700;
-        font-size: 14.5px;
+        font-size: 15px;
         color: var(--text-color);
     }
     .item-subcard-body {
-        font-size: 12.5px;
+        font-size: 13px;
         color: var(--text-color);
         opacity: 0.85;
         margin-top: 2px;
+    }
+
+    /* Banner Alert Cards */
+    .alert-banner {
+        border-radius: 10px;
+        padding: 12px 16px;
+        font-size: 13.5px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    .alert-warning {
+        background-color: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        color: #D97706;
+    }
+    .alert-info {
+        background-color: rgba(59, 130, 246, 0.12);
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        color: #2563EB;
     }
     </style>
 """,
@@ -451,7 +524,7 @@ def generate_pdf(df, title):
 
 
 # ---------------------------------------------------------
-# HEADER / BRANDING (THEME-ADAPTIVE)
+# HEADER / BRANDING
 # ---------------------------------------------------------
 col_logo, col_title = st.columns([1, 8])
 with col_logo:
@@ -548,14 +621,56 @@ if selected_tab == "📊 Operational Dashboard":
     active_lots_count = len(active_df)
     unique_storages_count = active_df["Cold Storage"].nunique()
 
+    # 1. LUXURY GLASS KPI STAT CARDS
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Current Stored Weight", f"{total_bal_kg:,.2f} KG")
-    kpi2.metric("Active Units / Bags", f"{int(total_bal_u):,} Units")
-    kpi3.metric("Active Batches", f"{active_lots_count} Lots")
-    kpi4.metric("Active Cold Storages", f"{unique_storages_count} Facilities")
+    with kpi1:
+      st.markdown(
+          f"""
+          <div class="kpi-card">
+              <div class="kpi-title">⚖️ Total Weight</div>
+              <div class="kpi-value">{total_bal_kg:,.2f} <span style="font-size:16px; font-weight:600;">KG</span></div>
+              <div class="kpi-sub">Active in storage</div>
+          </div>
+          """,
+          unsafe_allow_html=True,
+      )
+    with kpi2:
+      st.markdown(
+          f"""
+          <div class="kpi-card">
+              <div class="kpi-title">📦 Total Units / Bags</div>
+              <div class="kpi-value">{int(total_bal_u):,} <span style="font-size:16px; font-weight:600;">Units</span></div>
+              <div class="kpi-sub">Available stock</div>
+          </div>
+          """,
+          unsafe_allow_html=True,
+      )
+    with kpi3:
+      st.markdown(
+          f"""
+          <div class="kpi-card">
+              <div class="kpi-title">🏷️ Active Batches</div>
+              <div class="kpi-value">{active_lots_count} <span style="font-size:16px; font-weight:600;">Lots</span></div>
+              <div class="kpi-sub">Un-cleared batches</div>
+          </div>
+          """,
+          unsafe_allow_html=True,
+      )
+    with kpi4:
+      st.markdown(
+          f"""
+          <div class="kpi-card">
+              <div class="kpi-title">🏬 Cold Storages</div>
+              <div class="kpi-value">{unique_storages_count} <span style="font-size:16px; font-weight:600;">Facilities</span></div>
+              <div class="kpi-sub">Live partner locations</div>
+          </div>
+          """,
+          unsafe_allow_html=True,
+      )
 
-    st.divider()
+    st.write("")
 
+    # 2. ACTION ALERT BANNERS
     aging_lots = active_df[active_df["Days in Storage"] >= 60]
     low_stock_lots = active_df[active_df["Bal. Units"] <= 5]
 
@@ -563,37 +678,54 @@ if selected_tab == "📊 Operational Dashboard":
     with col_al1:
       if not aging_lots.empty:
         lots_str = ", ".join([
-            f"**{r['Lot No.']}** ({r['Days in Storage']}d)"
+            f"<b>{r['Lot No.']}</b> ({r['Days in Storage']}d)"
             for _, r in aging_lots.head(6).iterrows()
         ])
-        st.warning(
-            f"⚠️ **{len(aging_lots)} Critical Aging Lot(s) (>60 Days):**"
-            f" {lots_str}"
+        st.markdown(
+            f"""
+            <div class="alert-banner alert-warning">
+                ⚠️ &nbsp;<b>{len(aging_lots)} Critical Aging Lot(s) (>60 Days):</b> &nbsp;{lots_str}
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
       else:
-        st.success(
-            "✅ **No Aging Lots:** All active batches are under 60 days old."
+        st.markdown(
+            """
+            <div class="alert-banner alert-info">
+                ✅ &nbsp;<b>All active batches are fresh</b> (< 60 days old).
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     with col_al2:
       if not low_stock_lots.empty:
         low_str = ", ".join([
-            f"**{r['Lot No.']}** ({r['Bal. Units']} left)"
+            f"<b>{r['Lot No.']}</b> ({r['Bal. Units']} left)"
             for _, r in low_stock_lots.head(6).iterrows()
         ])
-        st.info(
-            f"📦 **{len(low_stock_lots)} Nearly Cleared Lot(s) (≤ 5 Units):**"
-            f" {low_str}"
+        st.markdown(
+            f"""
+            <div class="alert-banner alert-info">
+                📦 &nbsp;<b>{len(low_stock_lots)} Nearly Cleared Lot(s) (≤ 5 Units):</b> &nbsp;{low_str}
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
       else:
-        st.info(
-            "ℹ️ **Stock Balance:** No nearly cleared batches (≤ 5 units) at this"
-            " time."
+        st.markdown(
+            """
+            <div class="alert-banner alert-info">
+                ℹ️ &nbsp;<b>Stock Balance:</b> No batches near clearance (≤ 5 units).
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     st.divider()
 
-    # --- INTERACTIVE FACILITY BREAKDOWN WITH ACTION SHORTCUTS ---
+    # 3. INTERACTIVE FACILITY BREAKDOWN WITH ACTION SHORTCUTS
     col_fac, col_find = st.columns([1.35, 0.65])
 
     with col_fac:
@@ -667,6 +799,9 @@ if selected_tab == "📊 Operational Dashboard":
 
     with col_find:
       st.markdown("##### ⚡ Quick Item Stock Finder")
+      st.markdown(
+          "<div class='form-wrapper'>", unsafe_allow_html=True
+      )  # Card wrap finder
       avail_items = sorted(list(active_df["Item Name"].unique()))
       selected_finder_item = st.selectbox(
           "Check Instant Item Balance",
@@ -691,10 +826,11 @@ if selected_tab == "📊 Operational Dashboard":
             "Select any item above to see immediate totals and cold storage"
             " locations."
         )
+      st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
 
-    # DETAILED AGING TABLE
+    # 4. DETAILED AGING TABLE
     st.markdown("##### ⏳ Detailed Aging Status (Oldest to Newest)")
 
     def get_aging_badge(days):
@@ -1394,11 +1530,52 @@ elif selected_tab == "3. Stock Summary":
       df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
   )
 
+  # Modern Stat Cards for Summary
   m1, m2, m3, m4 = st.columns(4)
-  m1.metric("Total Dispatched", f"{int(total_outward_u):,} Units")
-  m2.metric("Total Retrieved", f"{int(total_inward_u):,} Units")
-  m3.metric("Remaining In Storage", f"{int(total_bal_u):,} Units")
-  m4.metric("Current Stored Weight", f"{total_bal_kg:,.2f} KG")
+  with m1:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-title">📤 Dispatched Total</div>
+            <div class="kpi-value">{int(total_outward_u):,} <span style="font-size:16px; font-weight:600;">Units</span></div>
+            <div class="kpi-sub">Lifetime Outward</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+  with m2:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-title">📥 Retrieved Total</div>
+            <div class="kpi-value">{int(total_inward_u):,} <span style="font-size:16px; font-weight:600;">Units</span></div>
+            <div class="kpi-sub">Lifetime Inward</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+  with m3:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-title">📦 Remaining Units</div>
+            <div class="kpi-value">{int(total_bal_u):,} <span style="font-size:16px; font-weight:600;">Units</span></div>
+            <div class="kpi-sub">In Storage Currently</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+  with m4:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-title">⚖️ Net Stored Weight</div>
+            <div class="kpi-value">{total_bal_kg:,.2f} <span style="font-size:16px; font-weight:600;">KG</span></div>
+            <div class="kpi-sub">Live Cold Weight</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
   st.divider()
 
