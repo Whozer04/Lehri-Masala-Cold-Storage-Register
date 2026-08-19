@@ -76,8 +76,8 @@ st.markdown(
         border: 1px solid #E2E8F0;
         border-left: 4px solid #10B981;
         border-radius: 6px;
-        padding: 10px 14px;
-        margin-bottom: 8px;
+        padding: 8px 12px;
+        margin-bottom: 6px;
     }
     .item-subcard-title {
         font-weight: 700;
@@ -85,14 +85,24 @@ st.markdown(
         color: #0F172A;
     }
     .item-subcard-body {
-        font-size: 12.5px;
+        font-size: 12px;
         color: #475569;
-        margin-top: 3px;
+        margin-top: 2px;
     }
     </style>
 """,
     unsafe_allow_html=True,
 )
+
+# ---------------------------------------------------------
+# SESSION STATE NAVIGATION INIT
+# ---------------------------------------------------------
+if "active_tab_index" not in st.session_state:
+  st.session_state.active_tab_index = 0
+if "prefill_cs" not in st.session_state:
+  st.session_state.prefill_cs = ""
+if "prefill_item" not in st.session_state:
+  st.session_state.prefill_item = ""
 
 # ---------------------------------------------------------
 # GOOGLE DRIVE / SHEETS ENGINE (WITH SMART CACHING)
@@ -484,20 +494,31 @@ with st.sidebar:
     st.rerun()
 
 # ---------------------------------------------------------
-# APPLICATION TABS
+# APPLICATION NAVIGATION MENU
 # ---------------------------------------------------------
-tab_dash, tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
+nav_options = [
     "📊 Operational Dashboard",
     "1. Outward Register",
     "2. Inward Register",
     "3. Stock Summary",
     "4. Custom Reports",
-])
+]
+
+selected_tab = st.radio(
+    "Navigation Menu",
+    options=nav_options,
+    index=st.session_state.active_tab_index,
+    horizontal=True,
+    label_visibility="collapsed",
+)
+
+# Keep tab index in sync
+st.session_state.active_tab_index = nav_options.index(selected_tab)
 
 # =========================================================
 # TAB: OPERATIONAL DASHBOARD
 # =========================================================
-with tab_dash:
+if selected_tab == "📊 Operational Dashboard":
   today = datetime.date.today()
 
   def calc_age(d_str):
@@ -533,28 +554,39 @@ with tab_dash:
     col_al1, col_al2 = st.columns(2)
     with col_al1:
       if not aging_lots.empty:
-        lots_str = ", ".join(
-            [f"**{r['Lot No.']}** ({r['Days in Storage']}d)" for _, r in aging_lots.head(6).iterrows()]
-        )
+        lots_str = ", ".join([
+            f"**{r['Lot No.']}** ({r['Days in Storage']}d)"
+            for _, r in aging_lots.head(6).iterrows()
+        ])
         st.warning(
-            f"⚠️ **{len(aging_lots)} Critical Aging Lot(s) (>60 Days):** {lots_str}"
+            f"⚠️ **{len(aging_lots)} Critical Aging Lot(s) (>60 Days):**"
+            f" {lots_str}"
         )
       else:
-        st.success("✅ **No Aging Lots:** All active batches are under 60 days old.")
+        st.success(
+            "✅ **No Aging Lots:** All active batches are under 60 days old."
+        )
 
     with col_al2:
       if not low_stock_lots.empty:
-        low_str = ", ".join(
-            [f"**{r['Lot No.']}** ({r['Bal. Units']} left)" for _, r in low_stock_lots.head(6).iterrows()]
+        low_str = ", ".join([
+            f"**{r['Lot No.']}** ({r['Bal. Units']} left)"
+            for _, r in low_stock_lots.head(6).iterrows()
+        ])
+        st.info(
+            f"📦 **{len(low_stock_lots)} Nearly Cleared Lot(s) (≤ 5 Units):**"
+            f" {low_str}"
         )
-        st.info(f"📦 **{len(low_stock_lots)} Nearly Cleared Lot(s) (≤ 5 Units):** {low_str}")
       else:
-        st.info("ℹ️ **Stock Balance:** No nearly cleared batches (≤ 5 units) at this time.")
+        st.info(
+            "ℹ️ **Stock Balance:** No nearly cleared batches (≤ 5 units) at this"
+            " time."
+        )
 
     st.divider()
 
-    # --- INTERACTIVE FACILITY BREAKDOWN & QUICK FINDER ---
-    col_fac, col_find = st.columns([1.3, 0.7])
+    # --- INTERACTIVE FACILITY BREAKDOWN WITH ACTION SHORTCUTS ---
+    col_fac, col_find = st.columns([1.35, 0.65])
 
     with col_fac:
       st.markdown("##### 🏢 Cold Storage Facilities (Click to Expand Items)")
@@ -566,28 +598,64 @@ with tab_dash:
         tot_fac_kg = fac_items_df["Bal. Total Qty (KG)"].sum()
         tot_fac_lots = len(fac_items_df)
 
-        # Interactive Expandable Facility Card
-        with st.expander(f"🏬 **{fac_name}** — {tot_fac_u:,} Units | {tot_fac_kg:,.2f} KG ({tot_fac_lots} Lots)"):
-          item_grp = fac_items_df.groupby("Item Name").agg({
-              "Bal. Units": "sum",
-              "Bal. Total Qty (KG)": "sum",
-              "Lot No.": lambda x: ", ".join(x.astype(str).unique()),
-          }).reset_index()
+        with st.expander(
+            f"🏬 **{fac_name}** — {tot_fac_u:,} Units | {tot_fac_kg:,.2f} KG"
+            f" ({tot_fac_lots} Lots)"
+        ):
+          item_grp = (
+              fac_items_df.groupby("Item Name")
+              .agg({
+                  "Bal. Units": "sum",
+                  "Bal. Total Qty (KG)": "sum",
+                  "Lot No.": lambda x: ", ".join(x.astype(str).unique()),
+              })
+              .reset_index()
+          )
 
           for _, it_row in item_grp.iterrows():
-            st.markdown(
-                f"""
-                <div class="item-subcard">
-                    <div class="item-subcard-title">🌶️ {it_row['Item Name']}</div>
-                    <div class="item-subcard-body">
-                        <b>{int(it_row['Bal. Units']):,} Units</b> &nbsp;|&nbsp; 
-                        <b>{it_row['Bal. Total Qty (KG)']:,.2f} KG</b> &nbsp;|&nbsp; 
-                        <span>Active Lots: {it_row['Lot No.']}</span>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            item_name = it_row["Item Name"]
+
+            c_info, c_btn1, c_btn2 = st.columns([2.2, 0.9, 0.9])
+            with c_info:
+              st.markdown(
+                  f"""
+                  <div class="item-subcard">
+                      <div class="item-subcard-title">🌶️ {item_name}</div>
+                      <div class="item-subcard-body">
+                          <b>{int(it_row['Bal. Units']):,} Units</b> &nbsp;|&nbsp; 
+                          <b>{it_row['Bal. Total Qty (KG)']:,.2f} KG</b> &nbsp;|&nbsp; 
+                          <span>Lots: {it_row['Lot No.']}</span>
+                      </div>
+                  </div>
+                  """,
+                  unsafe_allow_html=True,
+              )
+
+            with c_btn1:
+              st.write("")
+              if st.button(
+                  "➕ Outward",
+                  key=f"btn_out_{fac_name}_{item_name}",
+                  use_container_width=True,
+                  help=f"Register new Outward for {item_name} at {fac_name}",
+              ):
+                st.session_state.prefill_cs = fac_name
+                st.session_state.prefill_item = item_name
+                st.session_state.active_tab_index = 1
+                st.rerun()
+
+            with c_btn2:
+              st.write("")
+              if st.button(
+                  "📥 Inward",
+                  key=f"btn_in_{fac_name}_{item_name}",
+                  use_container_width=True,
+                  help=f"Retrieve {item_name} from {fac_name}",
+              ):
+                st.session_state.prefill_cs = fac_name
+                st.session_state.prefill_item = item_name
+                st.session_state.active_tab_index = 2
+                st.rerun()
 
     with col_find:
       st.markdown("##### ⚡ Quick Item Stock Finder")
@@ -604,14 +672,21 @@ with tab_dash:
         tot_item_kg = item_rows["Bal. Total Qty (KG)"].sum()
         storages_held = ", ".join(item_rows["Cold Storage"].unique())
 
-        st.metric(f"Total {selected_finder_item}", f"{tot_item_kg:,.2f} KG", f"{int(tot_item_u)} Units Available")
+        st.metric(
+            f"Total {selected_finder_item}",
+            f"{tot_item_kg:,.2f} KG",
+            f"{int(tot_item_u)} Units Available",
+        )
         st.caption(f"📍 **Located in:** {storages_held}")
       else:
-        st.caption("Select any item above to see immediate totals and cold storage locations.")
+        st.caption(
+            "Select any item above to see immediate totals and cold storage"
+            " locations."
+        )
 
     st.divider()
 
-    # 4. DETAILED AGING STATUS TABLE
+    # DETAILED AGING TABLE
     st.markdown("##### ⏳ Detailed Aging Status (Oldest to Newest)")
 
     def get_aging_badge(days):
@@ -624,7 +699,9 @@ with tab_dash:
       else:
         return "🟢 Fresh (<30 Days)"
 
-    active_df["Aging Category"] = active_df["Days in Storage"].apply(get_aging_badge)
+    active_df["Aging Category"] = active_df["Days in Storage"].apply(
+        get_aging_badge
+    )
 
     aging_display_df = active_df[[
         "Lot No.",
@@ -637,11 +714,16 @@ with tab_dash:
         "Bal. Total Qty (KG)",
     ]]
 
-    search_aging = st.text_input("🔍 Search Aging Records (Filter by Lot, Storage, or Item)", key="search_aging")
+    search_aging = st.text_input(
+        "🔍 Search Aging Records (Filter by Lot, Storage, or Item)",
+        key="search_aging",
+    )
     if search_aging:
       aging_display_df = aging_display_df[
           aging_display_df.apply(
-              lambda row: row.astype(str).str.contains(search_aging, case=False).any(),
+              lambda row: (
+                  row.astype(str).str.contains(search_aging, case=False).any()
+              ),
               axis=1,
           )
       ]
@@ -669,13 +751,22 @@ with tab_dash:
         )
 
   else:
-    st.info("No active stock available. Record Outward entries to view the operational dashboard.")
+    st.info(
+        "No active stock available. Record Outward entries to view the"
+        " operational dashboard."
+    )
 
 # =========================================================
 # TAB 1: OUTWARD REGISTER
 # =========================================================
-with tab_outward:
+elif selected_tab == "1. Outward Register":
   st.subheader("Record Outward Dispatch")
+
+  if st.session_state.prefill_cs or st.session_state.prefill_item:
+    st.info(
+        f"⚡ Quick-Entry Mode: Pre-selected **{st.session_state.prefill_item}**"
+        f" for **{st.session_state.prefill_cs}**."
+    )
 
   cs_opts = sorted(
       [
@@ -692,6 +783,18 @@ with tab_outward:
       ]
   )
 
+  # Check prefill default index
+  cs_default_idx = (
+      cs_opts.index(st.session_state.prefill_cs) + 1
+      if st.session_state.prefill_cs in cs_opts
+      else 0
+  )
+  item_default_idx = (
+      item_opts.index(st.session_state.prefill_item) + 1
+      if st.session_state.prefill_item in item_opts
+      else 0
+  )
+
   r1c1, r1c2, r1c3 = st.columns(3)
   out_date = r1c1.date_input(
       "Date (DD/MM/YY)",
@@ -705,8 +808,9 @@ with tab_outward:
   r2c1, r2c2 = st.columns(2)
   with r2c1:
     cs_selected = st.selectbox(
-        "Select Past Cold Storage",
+        "Select Cold Storage *",
         options=["-- Type New Below --"] + cs_opts,
+        index=cs_default_idx,
         key="out_cs_sel",
     )
     cs_new = st.text_input(
@@ -717,8 +821,9 @@ with tab_outward:
 
   with r2c2:
     item_selected = st.selectbox(
-        "Select Past Item",
+        "Select Item *",
         options=["-- Type New Below --"] + item_opts,
+        index=item_default_idx,
         key="out_item_sel",
     )
     item_new = st.text_input(
@@ -828,6 +933,8 @@ with tab_outward:
         }
         with st.spinner("Saving to Google Drive..."):
           save_outward_entry(new_record)
+        st.session_state.prefill_cs = ""
+        st.session_state.prefill_item = ""
         st.success(
             f"Saved: Lot '{out_lot_clean}' ({out_units} units of {final_item})"
         )
@@ -839,29 +946,65 @@ with tab_outward:
   with st.expander("🛠️ Manage / Edit / Delete Outward Records"):
     if not df_raw_out.empty:
       out_list = [
-          f"ID {r['id']} | Lot: {r['receipt_no']} ({r['item_name']} - {r['qty']} Units @ {r['cold_storage']})"
+          f"ID {r['id']} | Lot: {r['receipt_no']} ({r['item_name']} - {r['qty']}"
+          f" Units @ {r['cold_storage']})"
           for _, r in df_raw_out.iloc[::-1].iterrows()
       ]
-      sel_edit_out = st.selectbox("Select Outward Entry to Manage", options=out_list, key="sel_edit_out")
+      sel_edit_out = st.selectbox(
+          "Select Outward Entry to Manage", options=out_list, key="sel_edit_out"
+      )
       sel_id_out = sel_edit_out.split(" | ")[0].replace("ID ", "").strip()
-      target_out = df_raw_out[df_raw_out["id"].astype(str) == str(sel_id_out)].iloc[0]
+      target_out = df_raw_out[
+          df_raw_out["id"].astype(str) == str(sel_id_out)
+      ].iloc[0]
 
       e_c1, e_c2, e_c3 = st.columns(3)
-      e_out_dt = e_c1.date_input("Edit Date", parse_to_date_obj(target_out["entry_date"]) or datetime.date.today(), key="e_out_dt")
-      e_out_ref = e_c2.text_input("Edit Reference", value=str(target_out["reference_no"]), key="e_out_ref")
-      e_out_lot = e_c3.text_input("Lot No. (Read-Only)", value=str(target_out["receipt_no"]), disabled=True, key="e_out_lot")
+      e_out_dt = e_c1.date_input(
+          "Edit Date",
+          parse_to_date_obj(target_out["entry_date"]) or datetime.date.today(),
+          key="e_out_dt",
+      )
+      e_out_ref = e_c2.text_input(
+          "Edit Reference", value=str(target_out["reference_no"]), key="e_out_ref"
+      )
+      e_out_lot = e_c3.text_input(
+          "Lot No. (Read-Only)",
+          value=str(target_out["receipt_no"]),
+          disabled=True,
+          key="e_out_lot",
+      )
 
       e_c4, e_c5 = st.columns(2)
-      e_out_cs = e_c4.text_input("Edit Cold Storage", value=str(target_out["cold_storage"]), key="e_out_cs")
-      e_out_item = e_c5.text_input("Edit Item Name", value=str(target_out["item_name"]), key="e_out_item")
+      e_out_cs = e_c4.text_input(
+          "Edit Cold Storage",
+          value=str(target_out["cold_storage"]),
+          key="e_out_cs",
+      )
+      e_out_item = e_c5.text_input(
+          "Edit Item Name", value=str(target_out["item_name"]), key="e_out_item"
+      )
 
       e_c6, e_c7 = st.columns(2)
-      e_out_units = e_c6.number_input("Edit Units", min_value=1, value=int(target_out["qty"]), step=1, key="e_out_units")
-      e_out_size = e_c7.number_input("Edit Unit Weight (KG)", min_value=0.01, value=float(target_out["unit_size"]), step=0.5, key="e_out_size")
+      e_out_units = e_c6.number_input(
+          "Edit Units",
+          min_value=1,
+          value=int(target_out["qty"]),
+          step=1,
+          key="e_out_units",
+      )
+      e_out_size = e_c7.number_input(
+          "Edit Unit Weight (KG)",
+          min_value=0.01,
+          value=float(target_out["unit_size"]),
+          step=0.5,
+          key="e_out_size",
+      )
 
       btn_col1, btn_col2 = st.columns(2)
       with btn_col1:
-        if st.button("💾 Update Outward Entry", type="primary", use_container_width=True):
+        if st.button(
+            "💾 Update Outward Entry", type="primary", use_container_width=True
+        ):
           upd_data = {
               "entry_date": format_date_str(e_out_dt),
               "reference_no": e_out_ref.strip() or "-",
@@ -878,13 +1021,21 @@ with tab_outward:
 
       with btn_col2:
         if st.button("🗑️ Delete Outward Entry", use_container_width=True):
-          in_use = not df_raw_in[df_raw_in["receipt_no"].astype(str) == str(target_out["receipt_no"])].empty
+          in_use = not df_raw_in[
+              df_raw_in["receipt_no"].astype(str)
+              == str(target_out["receipt_no"])
+          ].empty
           if in_use:
-            st.error("Cannot delete! Inward retrievals already exist for this lot. Delete inward entries first.")
+            st.error(
+                "Cannot delete! Inward retrievals already exist for this lot."
+                " Delete inward entries first."
+            )
           else:
             with st.spinner("Deleting entry..."):
               delete_outward_entry(sel_id_out)
-            st.warning(f"Deleted Lot '{target_out['receipt_no']}' successfully.")
+            st.warning(
+                f"Deleted Lot '{target_out['receipt_no']}' successfully."
+            )
             st.rerun()
     else:
       st.info("No outward records available to manage.")
@@ -946,7 +1097,7 @@ with tab_outward:
 # =========================================================
 # TAB 2: INWARD REGISTER (BIDIRECTIONAL LOOKUP + EDIT/DELETE)
 # =========================================================
-with tab_inward:
+elif selected_tab == "2. Inward Register":
   st.subheader("Record Inward Retrieval")
 
   active_records = []
@@ -963,9 +1114,13 @@ with tab_inward:
   all_active_items = sorted(list(set(r[1] for r in active_records)))
   all_active_lots = sorted(list(set(r[0] for r in active_records)))
 
+  # Set default lookup mode to Reverse if item shortcut clicked
+  default_mode_idx = 1 if st.session_state.prefill_item else 0
+
   lookup_mode = st.radio(
       "Lookup Method:",
       ["Search by Lot No.", "Search by Item Name (Reverse Lookup)"],
+      index=default_mode_idx,
       horizontal=True,
   )
 
@@ -1022,9 +1177,15 @@ with tab_inward:
       )
 
   else:
+    item_in_def_idx = (
+        all_active_items.index(st.session_state.prefill_item) + 1
+        if st.session_state.prefill_item in all_active_items
+        else 0
+    )
     sel_in_item = r1c2.selectbox(
         "Select Stored Item Name *",
         options=[""] + all_active_items,
+        index=item_in_def_idx,
         key="in_item_sel_reverse",
     )
     if sel_in_item:
@@ -1084,6 +1245,8 @@ with tab_inward:
       }
       with st.spinner("Saving to Google Drive..."):
         save_inward_entry(new_inward_record)
+      st.session_state.prefill_cs = ""
+      st.session_state.prefill_item = ""
       st.success(
           f"Retrieved {in_qty} units of '{sel_item_final}' from Lot"
           f" '{sel_lot_final}'."
@@ -1099,20 +1262,48 @@ with tab_inward:
           f"ID {r['id']} | Date: {r['entry_date']} | Lot: {r['receipt_no']} ({r['item_name']} - {r['qty']} Units)"
           for _, r in df_raw_in.iloc[::-1].iterrows()
       ]
-      sel_edit_in = st.selectbox("Select Inward Entry to Manage", options=in_list, key="sel_edit_in")
+      sel_edit_in = st.selectbox(
+          "Select Inward Entry to Manage", options=in_list, key="sel_edit_in"
+      )
       sel_id_in = sel_edit_in.split(" | ")[0].replace("ID ", "").strip()
-      target_in = df_raw_in[df_raw_in["id"].astype(str) == str(sel_id_in)].iloc[0]
+      target_in = df_raw_in[
+          df_raw_in["id"].astype(str) == str(sel_id_in)
+      ].iloc[0]
 
       ei_c1, ei_c2, ei_c3 = st.columns(3)
-      ei_in_dt = ei_c1.date_input("Edit Retrieval Date", parse_to_date_obj(target_in["entry_date"]) or datetime.date.today(), key="ei_in_dt")
-      ei_lot = ei_c2.text_input("Lot No. (Read-Only)", value=str(target_in["receipt_no"]), disabled=True, key="ei_lot")
-      ei_item = ei_c3.text_input("Item Name (Read-Only)", value=str(target_in["item_name"]), disabled=True, key="ei_item")
+      ei_in_dt = ei_c1.date_input(
+          "Edit Retrieval Date",
+          parse_to_date_obj(target_in["entry_date"]) or datetime.date.today(),
+          key="ei_in_dt",
+      )
+      ei_lot = ei_c2.text_input(
+          "Lot No. (Read-Only)",
+          value=str(target_in["receipt_no"]),
+          disabled=True,
+          key="ei_lot",
+      )
+      ei_item = ei_c3.text_input(
+          "Item Name (Read-Only)",
+          value=str(target_in["item_name"]),
+          disabled=True,
+          key="ei_item",
+      )
 
-      ei_qty = st.number_input("Edit Units Retrieved", min_value=1, value=int(target_in["qty"]), step=1, key="ei_qty")
+      ei_qty = st.number_input(
+          "Edit Units Retrieved",
+          min_value=1,
+          value=int(target_in["qty"]),
+          step=1,
+          key="ei_qty",
+      )
 
       btn_in1, btn_in2 = st.columns(2)
       with btn_in1:
-        if st.button("💾 Update Inward Retrieval", type="primary", use_container_width=True):
+        if st.button(
+            "💾 Update Inward Retrieval",
+            type="primary",
+            use_container_width=True,
+        ):
           upd_in = {
               "entry_date": format_date_str(ei_in_dt),
               "qty": int(ei_qty),
@@ -1126,7 +1317,10 @@ with tab_inward:
         if st.button("🗑️ Delete Inward Retrieval", use_container_width=True):
           with st.spinner("Deleting retrieval record..."):
             delete_inward_entry(sel_id_in)
-          st.warning(f"Deleted Inward retrieval of {target_in['qty']} units from Lot '{target_in['receipt_no']}'.")
+          st.warning(
+              f"Deleted Inward retrieval of {target_in['qty']} units from Lot"
+              f" '{target_in['receipt_no']}'."
+          )
           st.rerun()
     else:
       st.info("No inward retrieval records available to manage.")
@@ -1184,7 +1378,7 @@ with tab_inward:
 # =========================================================
 # TAB 3: STOCK SUMMARY
 # =========================================================
-with tab_summary:
+elif selected_tab == "3. Stock Summary":
   st.subheader("Live Cold Storage Stock Summary")
 
   total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
@@ -1248,7 +1442,7 @@ with tab_summary:
 # =========================================================
 # TAB 4: CUSTOM REPORTS
 # =========================================================
-with tab_reports:
+elif selected_tab == "4. Custom Reports":
   st.subheader("Filter & Custom Report Engine")
 
   all_lots = (
