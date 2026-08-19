@@ -193,81 +193,44 @@ st.markdown(f"""
         margin-top: 2px;
         letter-spacing: -0.025em;
     }}
+
+    /* Card-like Interactive Buttons */
+    .stButton > button {{
+        border-radius: 14px !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.01em !important;
+        transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        white-space: pre-wrap !important;
+        line-height: 1.4 !important;
+        padding: 12px 16px !important;
+        border: 1px solid rgba(120, 120, 128, 0.16) !important;
+        background: var(--secondary-background-color) !important;
+    }}
+    .stButton > button div, .stButton > button p {{
+        text-align: left !important;
+        width: 100% !important;
+    }}
+    .stButton > button:hover {{
+        transform: scale(1.008) !important;
+        border-color: {active_palette['accent']} !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04) !important;
+    }}
+    .stButton > button:active {{
+        transform: scale(0.99) !important;
+    }}
     
-    .item-subcard {{
-        background: var(--background-color);
-        border: 1px solid rgba(120, 120, 128, 0.14);
-        border-left: 4px solid {active_palette['accent']};
-        border-radius: 14px;
-        padding: 10px 14px;
-        margin-bottom: 0px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+    /* Primary buttons stay centered */
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="stBaseButton-primary"] {{
+        text-align: center !important;
+        justify-content: center !important;
+        font-weight: 600 !important;
     }}
-    .item-subcard-title {{
-        font-weight: 600;
-        font-size: 14.5px;
-        color: var(--text-color);
-        letter-spacing: -0.015em;
-    }}
-    .item-subcard-body {{
-        font-size: 12.5px;
-        color: var(--text-color);
-        opacity: 0.82;
-        margin-top: 2px;
-    }}
-
-    .lot-subcard {{
-        background: var(--background-color);
-        border: 1px solid rgba(120, 120, 128, 0.14);
-        border-left: 4px solid {active_palette['badge_border']};
-        border-radius: 14px;
-        padding: 10px 14px;
-        margin-bottom: 0px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
-    }}
-    .lot-subcard-title {{
-        font-weight: 600;
-        font-size: 14.5px;
-        color: var(--text-color);
-        letter-spacing: -0.015em;
-    }}
-    .lot-subcard-body {{
-        font-size: 12.5px;
-        color: var(--text-color);
-        opacity: 0.82;
-        margin-top: 2px;
-    }}
-
-    /* Mobile Row Lock (Never Stacks Shortcut Button Below Card) */
-    div[data-testid="stHorizontalBlock"]:has(.lot-subcard),
-    div[data-testid="stHorizontalBlock"]:has(.item-subcard) {{
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        align-items: center !important;
-        gap: 8px !important;
-        margin-bottom: 8px !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(.lot-subcard) > div[data-testid="column"]:first-child,
-    div[data-testid="stHorizontalBlock"]:has(.item-subcard) > div[data-testid="column"]:first-child {{
-        min-width: 0 !important;
-        flex: 1 1 auto !important;
-    }}
-    div[data-testid="stHorizontalBlock"]:has(.lot-subcard) > div[data-testid="column"]:last-child,
-    div[data-testid="stHorizontalBlock"]:has(.item-subcard) > div[data-testid="column"]:last-child {{
-        min-width: fit-content !important;
-        flex: 0 0 auto !important;
-    }}
-
-    /* Compact Mobile Shortcut Buttons */
-    div[data-testid="stHorizontalBlock"]:has(.lot-subcard) .stButton > button,
-    div[data-testid="stHorizontalBlock"]:has(.item-subcard) .stButton > button {{
-        padding: 6px 14px !important;
-        min-height: 36px !important;
-        height: 36px !important;
-        font-size: 12.5px !important;
-        border-radius: 10px !important;
-        white-space: nowrap !important;
+    .stButton > button[kind="primary"] div,
+    .stButton > button[kind="primary"] p {{
+        text-align: center !important;
     }}
 
     .finder-loc-card {{
@@ -319,19 +282,6 @@ st.markdown(f"""
         border: 1px solid rgba(120, 120, 128, 0.22);
         box-shadow: 0 3px 10px rgba(0,0,0,0.06);
         font-weight: 600;
-    }}
-
-    .stButton > button {{
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        letter-spacing: -0.01em !important;
-        transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-    }}
-    .stButton > button:hover {{
-        transform: scale(1.015) !important;
-    }}
-    .stButton > button:active {{
-        transform: scale(0.98) !important;
     }}
     </style>
 """, unsafe_allow_html=True)
@@ -494,7 +444,7 @@ def update_inward_entry(entry_id, updated_record):
         for k, v in updated_record.items():
             df.loc[idx[0], k] = v
         conn.update(worksheet="inward", data=df)
-        get_outward_df.clear()
+        get_inward_df.clear()
         df_o = get_outward_df()
         df_s = compute_stock_summary_df(df_o, df)
         sync_sheet_stock_summary(df_s)
@@ -607,7 +557,7 @@ with col_h1:
         st.image("logo.png", width=95)
 with col_h2:
     st.markdown("<div class='main-header'>Lehri Masala Cold Storage Register</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Apple-Engineered Inventory Tracking & Precision Cold Ledger</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-header'>Cloud-Enabled Batch Tracking & Inventory Ledger</div>", unsafe_allow_html=True)
 
 # Fetch Data
 df_raw_out = get_outward_df()
@@ -717,12 +667,12 @@ if selected_tab == "📊 Operational Dashboard":
                 <div class="kpi-sub">Un-cleared storage lots</div>
             </div>
             """, unsafe_allow_html=True)
-            st.caption("ℹ️ Expand directory below to retrieve")
+            st.caption("ℹ️ Tap any lot card below to retrieve")
 
         st.write("")
 
-        # 2. ACTIVE BATCHES EXPANDABLE DIRECTORY
-        with st.expander(f"🏷️ **Active Batches Directory ({active_lots_count} Lots)** — Click to View & Retrieve"):
+        # 2. ACTIVE BATCHES EXPANDABLE DIRECTORY (TAP CARD TO INWARD)
+        with st.expander(f"🏷️ **Active Batches Directory ({active_lots_count} Lots)** — Tap Card to Retrieve Inward"):
             for _, lot_row in active_df.iterrows():
                 lot_no = str(lot_row["Lot No."])
                 item_name = str(lot_row["Item Name"])
@@ -731,31 +681,19 @@ if selected_tab == "📊 Operational Dashboard":
                 bal_kg = float(lot_row["Bal. Total Qty (KG)"])
                 days_held = int(lot_row["Days in Storage"])
 
-                c_lot_info, c_lot_btn = st.columns([5, 1], vertical_alignment="center")
-                with c_lot_info:
-                    st.markdown(f"""
-                    <div class="lot-subcard">
-                        <div class="lot-subcard-title">📦 Lot {lot_no} — {item_name}</div>
-                        <div class="lot-subcard-body">
-                            <b>{bal_u:,} Units</b> ({bal_kg:,.2f} KG) &nbsp;|&nbsp; 
-                            <span>Facility: <b>{cs_name}</b></span> &nbsp;|&nbsp; 
-                            <span>Age: <b>{days_held} days</b> (Since {lot_row['Outward Date']})</span>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with c_lot_btn:
-                    st.button(
-                        "📥 Inward",
-                        key=f"btn_in_lot_{lot_no}",
-                        on_click=navigate_to,
-                        args=("2. Inward Register", cs_name, item_name, lot_no),
-                        use_container_width=True,
-                        help=f"Retrieve units from Lot {lot_no}"
-                    )
+                lot_btn_label = f"📦 Lot {lot_no} — {item_name}   •   {bal_u:,} Units ({bal_kg:,.2f} KG)\n📍 {cs_name}   •   ⏳ {days_held} days (Since {lot_row['Outward Date']})   •   👉 Tap to Retrieve"
+                st.button(
+                    lot_btn_label,
+                    key=f"btn_card_lot_{lot_no}",
+                    on_click=navigate_to,
+                    args=("2. Inward Register", cs_name, item_name, lot_no),
+                    use_container_width=True,
+                    help=f"Tap to retrieve Inward from Lot {lot_no}"
+                )
 
-        # 3. COLD STORAGE FACILITIES DIRECTORY
+        # 3. COLD STORAGE FACILITIES DIRECTORY (TAP CARD TO OUTWARD)
         fac_names = sorted(list(active_df["Cold Storage"].unique()))
-        with st.expander(f"🏢 **Cold Storage Facilities ({len(fac_names)} Facilities)** — Click to Expand & Dispatch"):
+        with st.expander(f"🏢 **Cold Storage Facilities ({len(fac_names)} Facilities)** — Tap Item to Dispatch Outward"):
             for fac_name in fac_names:
                 fac_items_df = active_df[active_df["Cold Storage"] == fac_name]
                 tot_fac_u = int(fac_items_df["Bal. Units"].sum())
@@ -772,29 +710,16 @@ if selected_tab == "📊 Operational Dashboard":
 
                 for _, it_row in item_grp.iterrows():
                     item_name = it_row["Item Name"]
-
-                    c_info, c_btn1 = st.columns([5, 1], vertical_alignment="center")
-                    with c_info:
-                        st.markdown(f"""
-                        <div class="item-subcard">
-                            <div class="item-subcard-title">🌶️ {item_name}</div>
-                            <div class="item-subcard-body">
-                                <b>{int(it_row['Bal. Units']):,} Units</b> &nbsp;|&nbsp; 
-                                <b>{it_row['Bal. Total Qty (KG)']:,.2f} KG</b> &nbsp;|&nbsp; 
-                                <span>Lots: {it_row['Lot No.']}</span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    with c_btn1:
-                        st.button(
-                            "➕ Outward",
-                            key=f"btn_out_{fac_name}_{item_name}",
-                            on_click=navigate_to,
-                            args=("1. Outward Register", fac_name, item_name, ""),
-                            use_container_width=True,
-                            help=f"Register new Outward for {item_name} at {fac_name}"
-                        )
+                    fac_btn_label = f"🌶️ {item_name}   •   {int(it_row['Bal. Units']):,} Units ({it_row['Bal. Total Qty (KG)']:,.2f} KG)\n📦 Active Lots: {it_row['Lot No.']}   •   👉 Tap to Record Outward"
+                    
+                    st.button(
+                        fac_btn_label,
+                        key=f"btn_card_fac_{fac_name}_{item_name}",
+                        on_click=navigate_to,
+                        args=("1. Outward Register", fac_name, item_name, ""),
+                        use_container_width=True,
+                        help=f"Tap to record Outward for {item_name} at {fac_name}"
+                    )
                 st.write("")
 
         st.divider()
@@ -944,6 +869,7 @@ elif selected_tab == "1. Outward Register":
               }
 
               if (unitsInput && !unitsInput.dataset.liveListened) {
+                  unitsInput.dataset.liveListened = "true";
                   unitsInput.dataset.liveListened = "true";
                   unitsInput.addEventListener('input', update);
                   unitsInput.addEventListener('keyup', update);
