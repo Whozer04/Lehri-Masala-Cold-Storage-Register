@@ -40,34 +40,30 @@ st.markdown("""
         background-attachment: fixed;
     }
     
+    /* Make Streamlit top header unobtrusive */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 2.5rem !important;
+    }
+    
+    /* Generous top clearance so headers never clip */
     .block-container {
-        padding-top: 1.8rem;
-        padding-bottom: 3.5rem;
+        padding-top: 5.5rem !important;
+        padding-bottom: 3.5rem !important;
         max-width: 1280px;
     }
     
-    /* Top Header Hero Container */
-    .hero-card {
-        background: var(--secondary-background-color);
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        border-radius: 16px;
-        padding: 18px 24px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
-        display: flex;
-        align-items: center;
-        gap: 20px;
-    }
+    /* Top Header Container */
     .main-header {
-        font-size: 1.9rem;
+        font-size: 1.95rem;
         font-weight: 800;
         color: var(--text-color);
         letter-spacing: -0.5px;
         margin: 0;
-        line-height: 1.2;
+        line-height: 1.25;
     }
     .sub-header {
-        font-size: 0.9rem;
+        font-size: 0.92rem;
         color: var(--text-color);
         opacity: 0.72;
         margin: 0;
@@ -498,9 +494,9 @@ def generate_pdf(df, title):
     return buffer
 
 # ---------------------------------------------------------
-# HERO HEADER SECTION
+# HERO HEADER SECTION (WITH EXTRA CLEARANCE & VERTICAL ALIGN)
 # ---------------------------------------------------------
-col_h1, col_h2 = st.columns([1, 8])
+col_h1, col_h2 = st.columns([1, 7], vertical_alignment="center")
 with col_h1:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=95)
