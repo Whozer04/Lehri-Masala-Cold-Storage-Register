@@ -245,6 +245,29 @@ def save_outward_entry(record):
   sync_sheet_stock_summary(df_s)
 
 
+def update_outward_entry(entry_id, updated_record):
+  df = get_outward_df()
+  idx = df[df["id"].astype(str) == str(entry_id)].index
+  if not idx.empty:
+    for k, v in updated_record.items():
+      df.loc[idx[0], k] = v
+    conn.update(worksheet="outward", data=df)
+    get_outward_df.clear()
+    df_i = get_inward_df()
+    df_s = compute_stock_summary_df(df, df_i)
+    sync_sheet_stock_summary(df_s)
+
+
+def delete_outward_entry(entry_id):
+  df = get_outward_df()
+  df = df[df["id"].astype(str) != str(entry_id)]
+  conn.update(worksheet="outward", data=df)
+  get_outward_df.clear()
+  df_i = get_inward_df()
+  df_s = compute_stock_summary_df(df, df_i)
+  sync_sheet_stock_summary(df_s)
+
+
 def save_inward_entry(record):
   df = get_inward_df()
   next_id = (
@@ -259,6 +282,29 @@ def save_inward_entry(record):
   get_inward_df.clear()
   df_o = get_outward_df()
   df_s = compute_stock_summary_df(df_o, new_df)
+  sync_sheet_stock_summary(df_s)
+
+
+def update_inward_entry(entry_id, updated_record):
+  df = get_inward_df()
+  idx = df[df["id"].astype(str) == str(entry_id)].index
+  if not idx.empty:
+    for k, v in updated_record.items():
+      df.loc[idx[0], k] = v
+    conn.update(worksheet="inward", data=df)
+    get_inward_df.clear()
+    df_o = get_outward_df()
+    df_s = compute_stock_summary_df(df_o, df)
+    sync_sheet_stock_summary(df_s)
+
+
+def delete_inward_entry(entry_id):
+  df = get_inward_df()
+  df = df[df["id"].astype(str) != str(entry_id)]
+  conn.update(worksheet="inward", data=df)
+  get_inward_df.clear()
+  df_o = get_outward_df()
+  df_s = compute_stock_summary_df(df_o, df)
   sync_sheet_stock_summary(df_s)
 
 
@@ -449,7 +495,7 @@ tab_dash, tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
 ])
 
 # =========================================================
-# TAB: OPERATIONAL DASHBOARD (NO CHARTS)
+# TAB: OPERATIONAL DASHBOARD
 # =========================================================
 with tab_dash:
   today = datetime.date.today()
@@ -458,7 +504,6 @@ with tab_dash:
     dt = parse_to_date_obj(d_str)
     return (today - dt).days if dt else 0
 
-  # Filter active lots
   active_df = (
       df_sum[df_sum["Bal. Units"] > 0].copy()
       if not df_sum.empty
@@ -469,7 +514,6 @@ with tab_dash:
     active_df["Days in Storage"] = active_df["Outward Date"].apply(calc_age)
     active_df = active_df.sort_values(by="Days in Storage", ascending=False)
 
-    # 1. TOP METRICS
     total_bal_kg = active_df["Bal. Total Qty (KG)"].sum()
     total_bal_u = active_df["Bal. Units"].sum()
     active_lots_count = len(active_df)
@@ -483,7 +527,6 @@ with tab_dash:
 
     st.divider()
 
-    # 2. ACTION ALERT BANNERS
     aging_lots = active_df[active_df["Days in Storage"] >= 60]
     low_stock_lots = active_df[active_df["Bal. Units"] <= 5]
 
@@ -510,9 +553,7 @@ with tab_dash:
 
     st.divider()
 
-    # 3. FACILITY ALLOCATION CARDS & QUICK FINDER
     col_fac, col_find = st.columns([1.2, 0.8])
-
     with col_fac:
       st.markdown("##### 🏢 Cold Storage Facility Breakdown")
       fac_summary = (
@@ -562,7 +603,6 @@ with tab_dash:
 
     st.divider()
 
-    # 4. DETAILED AGING STATUS TABLE
     st.markdown("##### ⏳ Detailed Aging Status (Oldest to Newest)")
 
     def get_aging_badge(days):
@@ -786,6 +826,63 @@ with tab_outward:
 
   st.divider()
 
+  # --- OUTWARD EDIT & DELETE MANAGER ---
+  with st.expander("🛠️ Manage / Edit / Delete Outward Records"):
+    if not df_raw_out.empty:
+      out_list = [
+          f"ID {r['id']} | Lot: {r['receipt_no']} ({r['item_name']} - {r['qty']} Units @ {r['cold_storage']})"
+          for _, r in df_raw_out.iloc[::-1].iterrows()
+      ]
+      sel_edit_out = st.selectbox("Select Outward Entry to Manage", options=out_list, key="sel_edit_out")
+      sel_id_out = sel_edit_out.split(" | ")[0].replace("ID ", "").strip()
+      target_out = df_raw_out[df_raw_out["id"].astype(str) == str(sel_id_out)].iloc[0]
+
+      e_c1, e_c2, e_c3 = st.columns(3)
+      e_out_dt = e_c1.date_input("Edit Date", parse_to_date_obj(target_out["entry_date"]) or datetime.date.today(), key="e_out_dt")
+      e_out_ref = e_c2.text_input("Edit Reference", value=str(target_out["reference_no"]), key="e_out_ref")
+      e_out_lot = e_c3.text_input("Lot No. (Read-Only)", value=str(target_out["receipt_no"]), disabled=True, key="e_out_lot")
+
+      e_c4, e_c5 = st.columns(2)
+      e_out_cs = e_c4.text_input("Edit Cold Storage", value=str(target_out["cold_storage"]), key="e_out_cs")
+      e_out_item = e_c5.text_input("Edit Item Name", value=str(target_out["item_name"]), key="e_out_item")
+
+      e_c6, e_c7 = st.columns(2)
+      e_out_units = e_c6.number_input("Edit Units", min_value=1, value=int(target_out["qty"]), step=1, key="e_out_units")
+      e_out_size = e_c7.number_input("Edit Unit Weight (KG)", min_value=0.01, value=float(target_out["unit_size"]), step=0.5, key="e_out_size")
+
+      btn_col1, btn_col2 = st.columns(2)
+      with btn_col1:
+        if st.button("💾 Update Outward Entry", type="primary", use_container_width=True):
+          upd_data = {
+              "entry_date": format_date_str(e_out_dt),
+              "reference_no": e_out_ref.strip() or "-",
+              "cold_storage": e_out_cs.strip(),
+              "item_name": e_out_item.strip(),
+              "qty": int(e_out_units),
+              "unit_size": float(e_out_size),
+              "total_qty": float(e_out_units * e_out_size),
+          }
+          with st.spinner("Updating entry..."):
+            update_outward_entry(sel_id_out, upd_data)
+          st.success("Outward entry updated successfully!")
+          st.rerun()
+
+      with btn_col2:
+        if st.button("🗑️ Delete Outward Entry", use_container_width=True):
+          # Safety check: prevent deleting lot if inward retrievals already exist
+          in_use = not df_raw_in[df_raw_in["receipt_no"].astype(str) == str(target_out["receipt_no"])].empty
+          if in_use:
+            st.error("Cannot delete! Inward retrievals already exist for this lot. Delete inward entries first.")
+          else:
+            with st.spinner("Deleting entry..."):
+              delete_outward_entry(sel_id_out)
+            st.warning(f"Deleted Lot '{target_out['receipt_no']}' successfully.")
+            st.rerun()
+    else:
+      st.info("No outward records available to manage.")
+
+  st.divider()
+
   df_out_display = df_raw_out.copy()
   if not df_out_display.empty:
     df_out_display = df_out_display.rename(
@@ -839,7 +936,7 @@ with tab_outward:
       )
 
 # =========================================================
-# TAB 2: INWARD REGISTER (BIDIRECTIONAL LOOKUP)
+# TAB 2: INWARD REGISTER (BIDIRECTIONAL LOOKUP + EDIT/DELETE)
 # =========================================================
 with tab_inward:
   st.subheader("Record Inward Retrieval")
@@ -984,6 +1081,47 @@ with tab_inward:
           f" '{sel_lot_final}'."
       )
       st.rerun()
+
+  st.divider()
+
+  # --- INWARD EDIT & DELETE MANAGER ---
+  with st.expander("🛠️ Manage / Edit / Delete Inward Retrievals"):
+    if not df_raw_in.empty:
+      in_list = [
+          f"ID {r['id']} | Date: {r['entry_date']} | Lot: {r['receipt_no']} ({r['item_name']} - {r['qty']} Units)"
+          for _, r in df_raw_in.iloc[::-1].iterrows()
+      ]
+      sel_edit_in = st.selectbox("Select Inward Entry to Manage", options=in_list, key="sel_edit_in")
+      sel_id_in = sel_edit_in.split(" | ")[0].replace("ID ", "").strip()
+      target_in = df_raw_in[df_raw_in["id"].astype(str) == str(sel_id_in)].iloc[0]
+
+      ei_c1, ei_c2, ei_c3 = st.columns(3)
+      ei_in_dt = ei_c1.date_input("Edit Retrieval Date", parse_to_date_obj(target_in["entry_date"]) or datetime.date.today(), key="ei_in_dt")
+      ei_lot = ei_c2.text_input("Lot No. (Read-Only)", value=str(target_in["receipt_no"]), disabled=True, key="ei_lot")
+      ei_item = ei_c3.text_input("Item Name (Read-Only)", value=str(target_in["item_name"]), disabled=True, key="ei_item")
+
+      ei_qty = st.number_input("Edit Units Retrieved", min_value=1, value=int(target_in["qty"]), step=1, key="ei_qty")
+
+      btn_in1, btn_in2 = st.columns(2)
+      with btn_in1:
+        if st.button("💾 Update Inward Retrieval", type="primary", use_container_width=True):
+          upd_in = {
+              "entry_date": format_date_str(ei_in_dt),
+              "qty": int(ei_qty),
+          }
+          with st.spinner("Updating retrieval record..."):
+            update_inward_entry(sel_id_in, upd_in)
+          st.success("Inward record updated successfully!")
+          st.rerun()
+
+      with btn_in2:
+        if st.button("🗑️ Delete Inward Retrieval", use_container_width=True):
+          with st.spinner("Deleting retrieval record..."):
+            delete_inward_entry(sel_id_in)
+          st.warning(f"Deleted Inward retrieval of {target_in['qty']} units from Lot '{target_in['receipt_no']}'.")
+          st.rerun()
+    else:
+      st.info("No inward retrieval records available to manage.")
 
   st.divider()
 
