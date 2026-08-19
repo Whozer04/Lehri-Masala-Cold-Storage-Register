@@ -4,8 +4,6 @@ import os
 import re
 import sqlite3
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
@@ -72,6 +70,24 @@ st.markdown(
         font-weight: 700;
         color: #0F172A;
         margin-top: 2px;
+    }
+    .facility-card {
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-left: 5px solid #2563EB;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 10px;
+    }
+    .facility-title {
+        font-weight: 700;
+        font-size: 16px;
+        color: #0F172A;
+        margin-bottom: 4px;
+    }
+    .facility-sub {
+        font-size: 13px;
+        color: #64748B;
     }
     </style>
 """,
@@ -422,10 +438,10 @@ with st.sidebar:
     st.rerun()
 
 # ---------------------------------------------------------
-# APPLICATION TABS (WITH DASHBOARD TAB)
+# APPLICATION TABS
 # ---------------------------------------------------------
 tab_dash, tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
-    "📊 Analytics Dashboard",
+    "📊 Operational Dashboard",
     "1. Outward Register",
     "2. Inward Register",
     "3. Stock Summary",
@@ -433,157 +449,178 @@ tab_dash, tab_outward, tab_inward, tab_summary, tab_reports = st.tabs([
 ])
 
 # =========================================================
-# TAB: ANALYTICS DASHBOARD
+# TAB: OPERATIONAL DASHBOARD (NO CHARTS)
 # =========================================================
 with tab_dash:
-  st.subheader("Inventory & Warehouse Performance")
+  today = datetime.date.today()
 
-  # KPI calculations
-  total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
-  total_inward_u = df_sum["Inward Units"].sum() if not df_sum.empty else 0
-  total_bal_u = df_sum["Bal. Units"].sum() if not df_sum.empty else 0
-  total_bal_kg = df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
+  def calc_age(d_str):
+    dt = parse_to_date_obj(d_str)
+    return (today - dt).days if dt else 0
 
+  # Filter active lots
   active_df = (
       df_sum[df_sum["Bal. Units"] > 0].copy()
       if not df_sum.empty
       else pd.DataFrame()
   )
-  active_lots_count = len(active_df)
-  cleared_lots_count = (
-      len(df_sum[df_sum["Status"] == "CLEARED"]) if not df_sum.empty else 0
-  )
-  clearance_rate = (
-      (cleared_lots_count / len(df_sum) * 100) if len(df_sum) > 0 else 0.0
-  )
-
-  # KPI Cards
-  kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-  kpi1.metric("Current Stored Weight", f"{total_bal_kg:,.2f} KG")
-  kpi2.metric(
-      "Remaining Units",
-      f"{int(total_bal_u):,} Units",
-      f"{int(total_inward_u):,} Retrieved",
-  )
-  kpi3.metric("Active Batches", f"{active_lots_count} Lots")
-  kpi4.metric("Batch Clearance Rate", f"{clearance_rate:.1f}%")
-
-  st.divider()
 
   if not active_df.empty:
-    col_g1, col_g2 = st.columns(2)
+    active_df["Days in Storage"] = active_df["Outward Date"].apply(calc_age)
+    active_df = active_df.sort_values(by="Days in Storage", ascending=False)
 
-    # 1. Cold Storage Share
-    with col_g1:
-      st.markdown("##### 🏢 Stock by Cold Storage Facility (KG)")
-      cs_summary = (
-          active_df.groupby("Cold Storage")["Bal. Total Qty (KG)"]
-          .sum()
-          .reset_index()
-      )
-      fig_cs = px.pie(
-          cs_summary,
-          values="Bal. Total Qty (KG)",
-          names="Cold Storage",
-          hole=0.45,
-          color_discrete_sequence=px.colors.qualitative.Safe,
-      )
-      fig_cs.update_traces(
-          textposition="inside", textinfo="percent+label", hoverinfo="value"
-      )
-      fig_cs.update_layout(
-          margin=dict(t=20, b=20, l=10, r=10), height=320, showlegend=False
-      )
-      st.plotly_chart(fig_cs, use_container_width=True)
+    # 1. TOP METRICS
+    total_bal_kg = active_df["Bal. Total Qty (KG)"].sum()
+    total_bal_u = active_df["Bal. Units"].sum()
+    active_lots_count = len(active_df)
+    unique_storages_count = active_df["Cold Storage"].nunique()
 
-    # 2. Item Distribution Bar Chart
-    with col_g2:
-      st.markdown("##### 🌶️ Top Items in Storage (KG)")
-      item_summary = (
-          active_df.groupby("Item Name")["Bal. Total Qty (KG)"]
-          .sum()
-          .reset_index()
-          .sort_values("Bal. Total Qty (KG)", ascending=True)
-      )
-      fig_items = px.bar(
-          item_summary,
-          x="Bal. Total Qty (KG)",
-          y="Item Name",
-          orientation="h",
-          color="Bal. Total Qty (KG)",
-          color_continuous_scale="Blues",
-      )
-      fig_items.update_layout(
-          margin=dict(t=20, b=20, l=10, r=10),
-          height=320,
-          coloraxis_showscale=False,
-      )
-      st.plotly_chart(fig_items, use_container_width=True)
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Current Stored Weight", f"{total_bal_kg:,.2f} KG")
+    kpi2.metric("Active Units / Bags", f"{int(total_bal_u):,} Units")
+    kpi3.metric("Active Batches", f"{active_lots_count} Lots")
+    kpi4.metric("Active Cold Storages", f"{unique_storages_count} Facilities")
 
-    # 3. Storage Aging Breakdown
-    st.markdown("##### ⏳ Storage Aging Breakdown (Active Lots)")
+    st.divider()
 
-    today = datetime.date.today()
+    # 2. ACTION ALERT BANNERS
+    aging_lots = active_df[active_df["Days in Storage"] >= 60]
+    low_stock_lots = active_df[active_df["Bal. Units"] <= 5]
 
-    def calc_age(d_str):
-      dt = parse_to_date_obj(d_str)
-      return (today - dt).days if dt else 0
-
-    active_df["age_days"] = active_df["Outward Date"].apply(calc_age)
-
-    def age_bucket(days):
-      if days <= 30:
-        return "0-30 Days (Fresh)"
-      elif days <= 60:
-        return "31-60 Days"
-      elif days <= 90:
-        return "61-90 Days"
+    col_al1, col_al2 = st.columns(2)
+    with col_al1:
+      if not aging_lots.empty:
+        lots_str = ", ".join(
+            [f"**{r['Lot No.']}** ({r['Days in Storage']}d)" for _, r in aging_lots.head(6).iterrows()]
+        )
+        st.warning(
+            f"⚠️ **{len(aging_lots)} Critical Aging Lot(s) (>60 Days):** {lots_str}"
+        )
       else:
-        return "90+ Days (Aging)"
+        st.success("✅ **No Aging Lots:** All active batches are under 60 days old.")
 
-    active_df["Aging Bucket"] = active_df["age_days"].apply(age_bucket)
-    aging_summary = (
-        active_df.groupby("Aging Bucket")
-        .agg({"Lot No.": "count", "Bal. Total Qty (KG)": "sum"})
-        .reset_index()
-    )
+    with col_al2:
+      if not low_stock_lots.empty:
+        low_str = ", ".join(
+            [f"**{r['Lot No.']}** ({r['Bal. Units']} left)" for _, r in low_stock_lots.head(6).iterrows()]
+        )
+        st.info(f"📦 **{len(low_stock_lots)} Nearly Cleared Lot(s) (≤ 5 Units):** {low_str}")
+      else:
+        st.info("ℹ️ **Stock Balance:** No nearly cleared batches (≤ 5 units) at this time.")
 
-    col_age1, col_age2 = st.columns([1, 1])
-    with col_age1:
-      fig_age = px.bar(
-          aging_summary,
-          x="Aging Bucket",
-          y="Bal. Total Qty (KG)",
-          color="Aging Bucket",
-          color_discrete_map={
-              "0-30 Days (Fresh)": "#10B981",
-              "31-60 Days": "#FBBF24",
-              "61-90 Days": "#F97316",
-              "90+ Days (Aging)": "#EF4444",
-          },
+    st.divider()
+
+    # 3. FACILITY ALLOCATION CARDS & QUICK FINDER
+    col_fac, col_find = st.columns([1.2, 0.8])
+
+    with col_fac:
+      st.markdown("##### 🏢 Cold Storage Facility Breakdown")
+      fac_summary = (
+          active_df.groupby("Cold Storage")
+          .agg({
+              "Lot No.": "count",
+              "Bal. Units": "sum",
+              "Bal. Total Qty (KG)": "sum",
+          })
+          .reset_index()
       )
-      fig_age.update_layout(
-          margin=dict(t=20, b=20, l=10, r=10), height=300, showlegend=False
-      )
-      st.plotly_chart(fig_age, use_container_width=True)
 
-    with col_age2:
-      st.markdown("###### Detailed Aging Status")
-      st.dataframe(
-          active_df[[
-              "Lot No.",
-              "Item Name",
-              "Cold Storage",
-              "age_days",
-              "Bal. Units",
-              "Bal. Total Qty (KG)",
-          ]].rename(columns={"age_days": "Days in Storage"}),
+      for _, f_row in fac_summary.iterrows():
+        st.markdown(
+            f"""
+            <div class="facility-card">
+                <div class="facility-title">{f_row['Cold Storage']}</div>
+                <div class="facility-sub">
+                    <b>{int(f_row['Bal. Units']):,} Units</b> &nbsp;|&nbsp; 
+                    <b>{f_row['Bal. Total Qty (KG)']:,.2f} KG</b> &nbsp;|&nbsp; 
+                    {f_row['Lot No.']} Active Batches
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col_find:
+      st.markdown("##### ⚡ Quick Item Stock Finder")
+      avail_items = sorted(list(active_df["Item Name"].unique()))
+      selected_finder_item = st.selectbox(
+          "Check Instant Item Balance",
+          options=["-- Select Item --"] + avail_items,
+          key="dash_finder_sel",
+      )
+
+      if selected_finder_item != "-- Select Item --":
+        item_rows = active_df[active_df["Item Name"] == selected_finder_item]
+        tot_item_u = item_rows["Bal. Units"].sum()
+        tot_item_kg = item_rows["Bal. Total Qty (KG)"].sum()
+        storages_held = ", ".join(item_rows["Cold Storage"].unique())
+
+        st.metric(f"Total {selected_finder_item}", f"{tot_item_kg:,.2f} KG", f"{int(tot_item_u)} Units Available")
+        st.caption(f"📍 **Located in:** {storages_held}")
+      else:
+        st.caption("Select any item above to see immediate totals and cold storage locations.")
+
+    st.divider()
+
+    # 4. DETAILED AGING STATUS TABLE
+    st.markdown("##### ⏳ Detailed Aging Status (Oldest to Newest)")
+
+    def get_aging_badge(days):
+      if days >= 90:
+        return "🔴 Critical (90+ Days)"
+      elif days >= 60:
+        return "🟠 Alert (60-89 Days)"
+      elif days >= 30:
+        return "🟡 Moderate (30-59 Days)"
+      else:
+        return "🟢 Fresh (<30 Days)"
+
+    active_df["Aging Category"] = active_df["Days in Storage"].apply(get_aging_badge)
+
+    aging_display_df = active_df[[
+        "Lot No.",
+        "Outward Date",
+        "Days in Storage",
+        "Aging Category",
+        "Cold Storage",
+        "Item Name",
+        "Bal. Units",
+        "Bal. Total Qty (KG)",
+    ]]
+
+    search_aging = st.text_input("🔍 Search Aging Records (Filter by Lot, Storage, or Item)", key="search_aging")
+    if search_aging:
+      aging_display_df = aging_display_df[
+          aging_display_df.apply(
+              lambda row: row.astype(str).str.contains(search_aging, case=False).any(),
+              axis=1,
+          )
+      ]
+
+    st.dataframe(aging_display_df, use_container_width=True, hide_index=True)
+
+    c_age_exp1, c_age_exp2 = st.columns(2)
+    with c_age_exp1:
+      st.download_button(
+          "📥 Export Aging Report to CSV",
+          aging_display_df.to_csv(index=False).encode("utf-8"),
+          "Detailed_Aging_Report.csv",
+          "text/csv",
           use_container_width=True,
-          hide_index=True,
       )
+    with c_age_exp2:
+      pdf_age_buf = generate_pdf(aging_display_df, "Detailed Aging Report")
+      if pdf_age_buf:
+        st.download_button(
+            "📄 Export Aging Report to PDF",
+            pdf_age_buf,
+            "Detailed_Aging_Report.pdf",
+            "application/pdf",
+            use_container_width=True,
+        )
 
   else:
-    st.info("No active stock available. Record Outward entries to see charts.")
+    st.info("No active stock available. Record Outward entries to view the operational dashboard.")
 
 # =========================================================
 # TAB 1: OUTWARD REGISTER
@@ -1003,6 +1040,13 @@ with tab_inward:
 # =========================================================
 with tab_summary:
   st.subheader("Live Cold Storage Stock Summary")
+
+  total_outward_u = df_sum["Outward Units"].sum() if not df_sum.empty else 0
+  total_inward_u = df_sum["Inward Units"].sum() if not df_sum.empty else 0
+  total_bal_u = df_sum["Bal. Units"].sum() if not df_sum.empty else 0
+  total_bal_kg = (
+      df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
+  )
 
   m1, m2, m3, m4 = st.columns(4)
   m1.metric("Total Dispatched", f"{int(total_outward_u):,} Units")
