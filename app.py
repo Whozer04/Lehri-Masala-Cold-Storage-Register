@@ -29,7 +29,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# APPLE THEME PALETTES & DYNAMIC CSS
+# APPLE THEME PALETTES & DYNAMIC CSS (SAFE RETRIEVAL)
 # ---------------------------------------------------------
 THEMES = {
     "Cupertino Blue (Apple Classic)": {
@@ -39,7 +39,6 @@ THEMES = {
         "gradient1": "rgba(0, 113, 227, 0.08)",
         "gradient2": "rgba(50, 215, 75, 0.06)",
         "badge_border": "#0071E3",
-        "glass_bg": "rgba(255, 255, 255, 0.65)"
     },
     "Space Gray & Saffron (Brand)": {
         "accent": "#FF3B30",
@@ -48,7 +47,6 @@ THEMES = {
         "gradient1": "rgba(255, 149, 0, 0.09)",
         "gradient2": "rgba(255, 59, 48, 0.06)",
         "badge_border": "#FF9500",
-        "glass_bg": "rgba(255, 255, 255, 0.65)"
     },
     "Pro Emerald": {
         "accent": "#34C759",
@@ -57,7 +55,6 @@ THEMES = {
         "gradient1": "rgba(52, 199, 89, 0.09)",
         "gradient2": "rgba(48, 209, 88, 0.06)",
         "badge_border": "#34C759",
-        "glass_bg": "rgba(255, 255, 255, 0.65)"
     },
     "Vision Midnight (Dark OLED)": {
         "accent": "#64D2FF",
@@ -66,14 +63,16 @@ THEMES = {
         "gradient1": "rgba(100, 210, 255, 0.09)",
         "gradient2": "rgba(191, 90, 242, 0.07)",
         "badge_border": "#64D2FF",
-        "glass_bg": "rgba(30, 30, 35, 0.65)"
     }
 }
 
-if "app_theme" not in st.session_state:
-    st.session_state.app_theme = "Cupertino Blue (Apple Classic)"
+DEFAULT_THEME = "Cupertino Blue (Apple Classic)"
 
-active_palette = THEMES[st.session_state.app_theme]
+# Safe session state initialization
+if "app_theme" not in st.session_state or st.session_state.app_theme not in THEMES:
+    st.session_state.app_theme = DEFAULT_THEME
+
+active_palette = THEMES.get(st.session_state.app_theme, THEMES[DEFAULT_THEME])
 
 st.markdown(f"""
     <style>
@@ -580,10 +579,12 @@ df_sum = compute_stock_summary_df(df_raw_out, df_raw_in)
 # ---------------------------------------------------------
 with st.sidebar:
     st.header("🎨 Appearance & Palette")
+    theme_options = list(THEMES.keys())
+    current_idx = theme_options.index(st.session_state.app_theme) if st.session_state.app_theme in theme_options else 0
     new_theme = st.selectbox(
         "Design System Palette",
-        options=list(THEMES.keys()),
-        index=list(THEMES.keys()).index(st.session_state.app_theme),
+        options=theme_options,
+        index=current_idx,
         help="Select an Apple-inspired visual aesthetic"
     )
     if new_theme != st.session_state.app_theme:
