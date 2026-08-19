@@ -177,10 +177,18 @@ st.markdown(
 )
 
 # ---------------------------------------------------------
-# SESSION STATE NAVIGATION INIT
+# SESSION STATE NAVIGATION INIT (DIRECT KEY BINDING)
 # ---------------------------------------------------------
-if "active_tab_index" not in st.session_state:
-  st.session_state.active_tab_index = 0
+nav_options = [
+    "📊 Operational Dashboard",
+    "1. Outward Register",
+    "2. Inward Register",
+    "3. Stock Summary",
+    "4. Custom Reports",
+]
+
+if "nav_selection" not in st.session_state:
+  st.session_state.nav_selection = "📊 Operational Dashboard"
 if "prefill_cs" not in st.session_state:
   st.session_state.prefill_cs = ""
 if "prefill_item" not in st.session_state:
@@ -576,25 +584,15 @@ with st.sidebar:
     st.rerun()
 
 # ---------------------------------------------------------
-# APPLICATION NAVIGATION MENU
+# APPLICATION NAVIGATION MENU (INSTANT 1-CLICK)
 # ---------------------------------------------------------
-nav_options = [
-    "📊 Operational Dashboard",
-    "1. Outward Register",
-    "2. Inward Register",
-    "3. Stock Summary",
-    "4. Custom Reports",
-]
-
 selected_tab = st.radio(
     "Navigation Menu",
     options=nav_options,
-    index=st.session_state.active_tab_index,
+    key="nav_selection",
     horizontal=True,
     label_visibility="collapsed",
 )
-
-st.session_state.active_tab_index = nav_options.index(selected_tab)
 
 # =========================================================
 # TAB: OPERATIONAL DASHBOARD
@@ -781,7 +779,7 @@ if selected_tab == "📊 Operational Dashboard":
               ):
                 st.session_state.prefill_cs = fac_name
                 st.session_state.prefill_item = item_name
-                st.session_state.active_tab_index = 1
+                st.session_state.nav_selection = "1. Outward Register"
                 st.rerun()
 
             with c_btn2:
@@ -794,14 +792,12 @@ if selected_tab == "📊 Operational Dashboard":
               ):
                 st.session_state.prefill_cs = fac_name
                 st.session_state.prefill_item = item_name
-                st.session_state.active_tab_index = 2
+                st.session_state.nav_selection = "2. Inward Register"
                 st.rerun()
 
     with col_find:
       st.markdown("##### ⚡ Quick Item Stock Finder")
-      st.markdown(
-          "<div class='form-wrapper'>", unsafe_allow_html=True
-      )  # Card wrap finder
+      st.markdown("<div class='form-wrapper'>", unsafe_allow_html=True)
       avail_items = sorted(list(active_df["Item Name"].unique()))
       selected_finder_item = st.selectbox(
           "Check Instant Item Balance",
@@ -1530,7 +1526,6 @@ elif selected_tab == "3. Stock Summary":
       df_sum["Bal. Total Qty (KG)"].sum() if not df_sum.empty else 0.0
   )
 
-  # Modern Stat Cards for Summary
   m1, m2, m3, m4 = st.columns(4)
   with m1:
     st.markdown(
