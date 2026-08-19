@@ -27,7 +27,7 @@ except ImportError:
   HAS_REPORTLAB = False
 
 # ---------------------------------------------------------
-# PAGE CONFIG & STYLING
+# PAGE CONFIG & ADAPTIVE THEME STYLING
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="Lehri Masala Cold Storage Register",
@@ -39,41 +39,49 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    /* Theme-Adaptive Headers */
     .main-header {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #0F172A;
-        margin-bottom: 0.2rem;
+        font-size: 1.85rem;
+        font-weight: 800;
+        color: var(--text-color);
+        letter-spacing: -0.5px;
+        margin-bottom: 0.15rem;
     }
     .sub-header {
         font-size: 0.95rem;
-        color: #64748B;
-        margin-bottom: 1.5rem;
+        color: var(--text-color);
+        opacity: 0.75;
+        margin-bottom: 1.2rem;
     }
+    
+    /* Live Calculation Box */
     .live-calc-box {
-        background-color: #F8FAFC;
-        border: 1px solid #CBD5E1;
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.25);
         border-radius: 8px;
         padding: 10px 14px;
         text-align: center;
         margin-top: 4px;
     }
     .live-calc-label {
-        font-size: 12.5px;
-        color: #64748B;
+        font-size: 12px;
+        color: var(--text-color);
+        opacity: 0.7;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .live-calc-val {
         font-size: 22px;
-        font-weight: 700;
-        color: #0F172A;
+        font-weight: 800;
+        color: #3B82F6;
         margin-top: 2px;
     }
+    
+    /* Item Subcards in Dashboard */
     .item-subcard {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
         border-left: 4px solid #10B981;
         border-radius: 6px;
         padding: 8px 12px;
@@ -82,11 +90,12 @@ st.markdown(
     .item-subcard-title {
         font-weight: 700;
         font-size: 14.5px;
-        color: #0F172A;
+        color: var(--text-color);
     }
     .item-subcard-body {
-        font-size: 12px;
-        color: #475569;
+        font-size: 12.5px;
+        color: var(--text-color);
+        opacity: 0.85;
         margin-top: 2px;
     }
     </style>
@@ -442,7 +451,7 @@ def generate_pdf(df, title):
 
 
 # ---------------------------------------------------------
-# HEADER / BRANDING
+# HEADER / BRANDING (THEME-ADAPTIVE)
 # ---------------------------------------------------------
 col_logo, col_title = st.columns([1, 8])
 with col_logo:
@@ -512,7 +521,6 @@ selected_tab = st.radio(
     label_visibility="collapsed",
 )
 
-# Keep tab index in sync
 st.session_state.active_tab_index = nav_options.index(selected_tab)
 
 # =========================================================
@@ -783,7 +791,6 @@ elif selected_tab == "1. Outward Register":
       ]
   )
 
-  # Check prefill default index
   cs_default_idx = (
       cs_opts.index(st.session_state.prefill_cs) + 1
       if st.session_state.prefill_cs in cs_opts
@@ -1114,7 +1121,6 @@ elif selected_tab == "2. Inward Register":
   all_active_items = sorted(list(set(r[1] for r in active_records)))
   all_active_lots = sorted(list(set(r[0] for r in active_records)))
 
-  # Set default lookup mode to Reverse if item shortcut clicked
   default_mode_idx = 1 if st.session_state.prefill_item else 0
 
   lookup_mode = st.radio(
